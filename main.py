@@ -585,9 +585,10 @@ class AnnotationReviewer:
             self.current_annotation_index = 0
             
         annotation = self.current_annotations[self.current_annotation_index]
-        if self.last_transfer and self.last_transfer.get('annotation_idx') != self.current_annotation_index:
-            self.last_transfer = None
         self.current_old_annotation = self.find_old_annotation(annotation)
+        current_key = (self.current_json_path, self.current_annotation_index)
+        if self.last_transfer and self.last_transfer.get('key') != current_key:
+            self.last_transfer = None
         
         # Display annotation info
         info_text = f"Annotation {self.current_annotation_index + 1}/{len(self.current_annotations)}\n\n"
@@ -642,8 +643,10 @@ class AnnotationReviewer:
         idx = self.current_annotation_index
         current_annotation = self.current_annotations[idx]
 
+        current_key = (self.current_json_path, idx)
+
         # 若已经应用过旧数据，则撤销到原始内容
-        if self.last_transfer and self.last_transfer.get('annotation_idx') == idx and self.last_transfer.get('applied'):
+        if self.last_transfer and self.last_transfer.get('key') == current_key and self.last_transfer.get('applied'):
             self.current_annotations[idx] = copy.deepcopy(self.last_transfer['original'])
             self.last_transfer['applied'] = False
             messagebox.showinfo("Undo", "已撤销本次一键替换")
@@ -656,6 +659,7 @@ class AnnotationReviewer:
             return
 
         self.last_transfer = {
+            'key': current_key,
             'annotation_idx': idx,
             'original': copy.deepcopy(current_annotation),
             'applied': False,
