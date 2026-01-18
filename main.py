@@ -6,6 +6,7 @@ AI标注审查程序
 
 import os
 import json
+import copy
 import cv2
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -22,7 +23,12 @@ class AnnotationReviewer:
         
         # Data paths
         self.output_path = Path("../output")
-        self.dataset_path = Path("../Dateset")
+        self.dataset_path = Path("../Dataset")
+        self.old_output_path = Path("../../data/output")
+        self.old_cache = {}
+        self.current_json_path = None
+        self.current_old_annotation = None
+        self.last_transfer = None
         
         # 当前状态
         self.current_sport = None
@@ -49,7 +55,6 @@ class AnnotationReviewer:
         # bbox编辑模式相关变量
         self.bbox_edit_mode = False    # 是否在bbox编辑模式
         self.editing_bbox = None       # 当前编辑的bbox（'first_bounding_box' 或 ('bounding_box', index)）
-        self.current_bbox_edit_index = 0  # 当前编辑的bbox索引
         self.bbox_start_point = None   # bbox绘制的起始点
         self.temp_bbox = None          # 临时bbox坐标
         
@@ -189,7 +194,7 @@ class AnnotationReviewer:
         self.root.bind('<KeyPress-B>', self.on_b_key)
         self.root.bind('<KeyPress-w>', self.on_w_key)
         self.root.bind('<KeyPress-W>', self.on_w_key)  # 大写W也支持
-        self.root.bind('<KeyPress-u>', self.on_u_key)  # U键跳到下一个未审核文件
+        self.root.bind('<KeyPress-u>', self.on_u_key)  # U键跳到下一个未审核文件（Shift+U 过滤特定任务）
         self.root.bind('<KeyPress-U>', self.on_u_key)
         self.root.bind('<F5>', self.on_f5_key)  # F5键重新加载数据
         self.root.bind('<KeyPress-e>', self.on_e_key)  # E键切换bbox编辑模式
@@ -206,6 +211,8 @@ class AnnotationReviewer:
         self.root.bind('<KeyPress-R>', self.on_r_key)
         self.root.bind('<KeyPress-s>', self.on_s_key)  # S键保存
         self.root.bind('<KeyPress-S>', self.on_s_key)
+        self.root.bind('<KeyPress-t>', self.on_t_key)  # T键同步旧数据
+        self.root.bind('<KeyPress-T>', self.on_t_key)
         self.root.bind('<Return>', self.on_enter_key)  # Enter键播放/暂停
         self.root.focus_set()
         
@@ -262,6 +269,11 @@ class AnnotationReviewer:
     def on_id_selected(self, event=None):
         """ID选择回调"""
         self.current_id = self.id_var.get()
+        # 当用户选择了ID后，自动加载并显示数据
+        try:
+            self.load_data()
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load selected ID: {str(e)}")
         
     def on_canvas_click(self, event):
         """鼠标点击事件处理"""
@@ -295,14 +307,8 @@ class AnnotationReviewer:
         # 更新临时bbox
         x1, y1 = self.bbox_start_point
         self.temp_bbox = [min(x1, video_x), min(y1, video_y), max(x1, video_x), max(y1, video_y)]
-        
-        # 根据当前模式重新绘制
-        if self.current_type == "frames":
-            # Frame模式：重新显示当前图片
-            self.display_frame_with_annotations()
-        else:
-            # Video模式：重新绘制当前帧
-            self.redraw_current_frame()
+        # 在编辑模式下只重新绘制当前帧，不推进视频
+        self.redraw_current_frame()
         
     def on_canvas_release(self, event):
         """鼠标释放事件处理"""
@@ -328,53 +334,31 @@ class AnnotationReviewer:
         # 保存bbox到当前标注
         annotation = self.current_annotations[self.current_annotation_index]
         
-        # 根据当前编辑的bbox类型来更新
-        if self.editing_bbox:
-            bbox_type, bbox_idx = self.editing_bbox
-            if bbox_type == 'first_bounding_box':
-                annotation['first_bounding_box'] = new_bbox
-                annotation['retrack'] = True  # 标记需要重新跟踪
-                print(f"Updated first_bounding_box: {new_bbox}")
-            elif bbox_type == 'bounding_box' and 'bounding_box' in annotation:
-                bbox_list = annotation['bounding_box']
-                if bbox_idx < len(bbox_list):
-                    if isinstance(bbox_list[bbox_idx], dict):
-                        bbox_list[bbox_idx]['box'] = new_bbox
-                    else:
-                        bbox_list[bbox_idx] = new_bbox
-                    annotation['retrack'] = True  # 标记需要重新跟踪
-                    print(f"Updated bounding_box[{bbox_idx}]: {new_bbox}")
-        else:
-            # 兼容旧逻辑，优先更新first_bounding_box
-            if 'first_bounding_box' in annotation:
-                annotation['first_bounding_box'] = new_bbox
-                annotation['retrack'] = True
-                print(f"Updated first_bounding_box: {new_bbox}")
-            elif 'bounding_box' in annotation and len(annotation['bounding_box']) > 0:
-                if isinstance(annotation['bounding_box'][0], dict):
-                    annotation['bounding_box'][0]['box'] = new_bbox
-                else:
-                    annotation['bounding_box'][0] = new_bbox
-                annotation['retrack'] = True
-                print(f"Updated bounding_box[0]: {new_bbox}")
+        # 选择要更新的bbox类型
+        if 'first_bounding_box' in annotation:
+            annotation['first_bounding_box'] = new_bbox
+            annotation['retrack'] = True  # 标记需要重新跟踪
+            print(f"Updated first_bounding_box: {new_bbox}")
+        elif 'bounding_box' in annotation and len(annotation['bounding_box']) > 0:
+            # 更新第一个bounding_box
+            if isinstance(annotation['bounding_box'][0], dict):
+                annotation['bounding_box'][0]['box'] = new_bbox
             else:
-                # 创建first_bounding_box
-                annotation['first_bounding_box'] = new_bbox
-                annotation['retrack'] = True
-                print(f"Created new first_bounding_box: {new_bbox}")
+                annotation['bounding_box'][0] = new_bbox
+            annotation['retrack'] = True  # 标记需要重新跟踪
+            print(f"Updated bounding_box[0]: {new_bbox}")
+        else:
+            # 创建first_bounding_box
+            annotation['first_bounding_box'] = new_bbox
+            annotation['retrack'] = True  # 标记需要重新跟踪
+            print(f"Created new first_bounding_box: {new_bbox}")
             
         # 清理临时状态
         self.bbox_start_point = None
         self.temp_bbox = None
+        self.update_frame_display()
         
-        # 根据当前模式重新显示
-        if self.current_type == "frames":
-            self.display_frame_with_annotations()
-        else:
-            self.update_frame_display()
-        
-        bbox_info = f"{self.editing_bbox[0]}[{self.editing_bbox[1]}]" if self.editing_bbox else "bbox"
-        messagebox.showinfo("Success", f"{bbox_info} updated!\nNew bbox: {new_bbox}\nRetrack flag added: true\n\nPress E to edit next bbox or continue\nDon't forget to save (S key)")
+        messagebox.showinfo("Success", f"Bbox updated!\nNew bbox: {new_bbox}\nRetrack flag added: true\n\nDon't forget to save (S key)")
         
     def canvas_to_video_coords(self, canvas_x, canvas_y):
         """将画布坐标转换为视频坐标"""
@@ -409,8 +393,7 @@ class AnnotationReviewer:
         video_y = int((relative_y / display_height) * frame_height)
         
         return video_x, video_y
-
-    def reload_current_file(self):
+        """重新加载当前文件的最新数据"""
         if not all([self.current_sport, self.current_event, self.current_id, self.current_type]):
             messagebox.showwarning("Warning", "No file currently loaded to reload")
             return
@@ -440,10 +423,18 @@ class AnnotationReviewer:
             return
             
         self.current_type = self.type_var.get()
+
+        # 切换文件前确保停止播放并释放资源
+        self.stop_playback()
+        if self.video_cap:
+            self.video_cap.release()
+            self.video_cap = None
+        self.current_image = None
         
         # 加载JSON标注数据
         json_path = (self.output_path / self.current_sport / 
                     self.current_event / self.current_type / f"{self.current_id}.json")
+        self.current_json_path = json_path
         
         try:
             with open(json_path, 'r', encoding='utf-8') as f:
@@ -506,6 +497,19 @@ class AnnotationReviewer:
                 frame_path = candidate_path
                 break
                 
+        # 如果默认路径不存在，尝试从标注中的 _debug.frame_path 读取
+        if not frame_path and self.current_annotations:
+            try:
+                current_annotation = self.current_annotations[self.current_annotation_index]
+                debug_info = current_annotation.get('_debug', {})
+                debug_path_str = debug_info.get('frame_path')
+                if debug_path_str:
+                    debug_path = Path(debug_path_str).expanduser()
+                    if debug_path.is_file():
+                        frame_path = debug_path
+            except Exception as e:
+                print(f"Failed to use debug frame path: {e}")
+
         if not frame_path:
             messagebox.showerror("Error", f"Image file not found: {self.current_sport}/{self.current_event}/frames/{self.current_id}")
             return
@@ -516,6 +520,59 @@ class AnnotationReviewer:
             return
             
         self.display_frame_with_annotations()
+
+    def get_old_json_path(self):
+        """构造旧数据集中对应文件的路径"""
+        if not all([self.current_sport, self.current_event, self.current_id, self.current_type]):
+            return None
+        return (self.old_output_path / self.current_sport /
+                self.current_event / self.current_type / f"{self.current_id}.json")
+
+    def load_old_annotations(self):
+        """加载旧数据中的annotations并执行缓存"""
+        old_json_path = self.get_old_json_path()
+        if old_json_path is None or not old_json_path.exists():
+            return None
+        if old_json_path in self.old_cache:
+            return self.old_cache[old_json_path]
+        try:
+            with open(old_json_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                self.old_cache[old_json_path] = data
+                return data
+        except Exception:
+            self.old_cache[old_json_path] = None
+            return None
+
+    def find_old_annotation(self, annotation):
+        """在旧数据中查找同任务且已审核的annotation"""
+        old_data = self.load_old_annotations()
+        if not old_data:
+            return None
+        annotations = old_data.get('annotations', [])
+        target_task = annotation.get('task_L2')
+        if not target_task:
+            return None
+        candidates = [
+            ann for ann in annotations
+            if ann.get('task_L2') == target_task and ann.get('reviewed', False)
+        ]
+        if not candidates:
+            return None
+
+        target_id = annotation.get('annotation_id')
+        if target_id is not None:
+            for ann in candidates:
+                if ann.get('annotation_id') == target_id:
+                    return ann
+
+        target_question = str(annotation.get('question', '')).strip()
+        if target_question:
+            for ann in candidates:
+                if str(ann.get('question', '')).strip() == target_question:
+                    return ann
+
+        return candidates[0]
         
     def display_current_annotation(self):
         """显示当前标注信息"""
@@ -528,12 +585,16 @@ class AnnotationReviewer:
             self.current_annotation_index = 0
             
         annotation = self.current_annotations[self.current_annotation_index]
+        if self.last_transfer and self.last_transfer.get('annotation_idx') != self.current_annotation_index:
+            self.last_transfer = None
+        self.current_old_annotation = self.find_old_annotation(annotation)
         
         # Display annotation info
         info_text = f"Annotation {self.current_annotation_index + 1}/{len(self.current_annotations)}\n\n"
         info_text += f"ID: {annotation.get('annotation_id', 'N/A')}\n"
         info_text += f"Task Type: {annotation.get('task_L1', 'N/A')}/{annotation.get('task_L2', 'N/A')}\n"
         info_text += f"Reviewed: {'Yes' if annotation.get('reviewed', False) else 'No'}\n"
+        info_text += f"exist_old: {'true' if self.current_old_annotation else 'false'}\n"
         
         # 显示retrack状态
         if annotation.get('retrack', False):
@@ -571,6 +632,41 @@ class AnnotationReviewer:
             self.update_video_display()
         else:
             self.display_frame_with_annotations()
+
+    def toggle_old_transfer(self):
+        """切换是否应用旧数据中的annotation内容"""
+        if not self.current_annotations:
+            messagebox.showinfo("Info", "当前无可用标注")
+            return
+
+        idx = self.current_annotation_index
+        current_annotation = self.current_annotations[idx]
+
+        # 若已经应用过旧数据，则撤销到原始内容
+        if self.last_transfer and self.last_transfer.get('annotation_idx') == idx and self.last_transfer.get('applied'):
+            self.current_annotations[idx] = copy.deepcopy(self.last_transfer['original'])
+            self.last_transfer['applied'] = False
+            messagebox.showinfo("Undo", "已撤销本次一键替换")
+            self.display_current_annotation()
+            return
+
+        old_annotation = self.current_old_annotation or self.find_old_annotation(current_annotation)
+        if not old_annotation:
+            messagebox.showinfo("Info", "旧数据不存在同任务且已审核的标注")
+            return
+
+        self.last_transfer = {
+            'annotation_idx': idx,
+            'original': copy.deepcopy(current_annotation),
+            'applied': False,
+        }
+
+        new_annotation = copy.deepcopy(old_annotation)
+        new_annotation['reviewed'] = current_annotation.get('reviewed', False)
+        self.current_annotations[idx] = new_annotation
+        self.last_transfer['applied'] = True
+        messagebox.showinfo("Success", "已应用旧数据内容（按 T 再次撤销）")
+        self.display_current_annotation()
             
     def update_video_display(self):
         """更新视频显示with标注"""
@@ -671,13 +767,6 @@ class AnnotationReviewer:
         # 绘制bounding boxes
         self.draw_bounding_boxes(annotated_frame, annotation)
         
-        # 绘制临时bbox（正在绘制的框） - 为了确保在video模式下也显示
-        if self.bbox_edit_mode and self.temp_bbox:
-            x1, y1, x2, y2 = self.temp_bbox
-            cv2.rectangle(annotated_frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 255), 3)
-            cv2.putText(annotated_frame, "Drawing...", (int(x1), int(y1) - 10), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-        
         return annotated_frame
         
     def draw_window_markers(self, frame, annotation):
@@ -727,52 +816,26 @@ class AnnotationReviewer:
         if 'bounding_box' in annotation:
             boxes = annotation['bounding_box']
             for i, box_info in enumerate(boxes):
-                # 确定颜色：如果是当前编辑的bbox，使用特殊颜色
-                is_editing_current = (self.bbox_edit_mode and self.editing_bbox and 
-                                    self.editing_bbox[0] == 'bounding_box' and self.editing_bbox[1] == i)
-                color = (0, 255, 0) if is_editing_current else (0, 255, 255)  # 绿色表示正在编辑，青色表示普通
-                thickness = 4 if is_editing_current else 2
-                
                 if isinstance(box_info, dict) and 'box' in box_info:
                     box = box_info['box']
                     label = box_info.get('label', f'Object {i+1}')
-                    if is_editing_current:
-                        label = f"🎯 {label} (EDITING)"
-                    self.draw_single_bbox(frame, box, label, color, thickness)
+                    self.draw_single_bbox(frame, box, label, (0, 255, 255))
                 elif isinstance(box_info, list) and len(box_info) == 4:
-                    label = f'Object {i+1}'
-                    if is_editing_current:
-                        label = f"🎯 {label} (EDITING)"
-                    self.draw_single_bbox(frame, box_info, label, color, thickness)
+                    self.draw_single_bbox(frame, box_info, f'Object {i+1}', (0, 255, 255))
                     
         # 第一帧边界框
         if 'first_bounding_box' in annotation:
             box = annotation['first_bounding_box']
-            # 确定颜色：如果是当前编辑的first_bounding_box，使用特殊颜色
-            is_editing_current = (self.bbox_edit_mode and self.editing_bbox and 
-                                self.editing_bbox[0] == 'first_bounding_box')
-            color = (0, 255, 0) if is_editing_current else (255, 0, 0)  # 绿色表示正在编辑，红色表示普通
-            thickness = 4 if is_editing_current else 2
-            label = 'Tracked Object'
-            if is_editing_current:
-                label = "🎯 Tracked Object (EDITING)"
-            self.draw_single_bbox(frame, box, label, color, thickness)
+            self.draw_single_bbox(frame, box, 'Tracked Object', (255, 0, 0))
             
         # MOT追踪框
         if 'tracking_bboxes' in annotation and 'mot_file' in annotation['tracking_bboxes']:
             self.draw_mot_boxes(frame, annotation['tracking_bboxes']['mot_file'])
             
-        # 绘制临时bbox（正在绘制的框）
-        if self.bbox_edit_mode and self.temp_bbox:
-            x1, y1, x2, y2 = self.temp_bbox
-            cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 255), 3)
-            cv2.putText(frame, "Drawing...", (int(x1), int(y1) - 10), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-            
-    def draw_single_bbox(self, frame, box, label, color, thickness=2):
+    def draw_single_bbox(self, frame, box, label, color):
         """绘制单个边界框"""
         x1, y1, x2, y2 = map(int, box)
-        cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
+        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
         cv2.putText(frame, label, (x1, y1 - 10), 
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
                    
@@ -805,36 +868,15 @@ class AnnotationReviewer:
         if self.current_annotations:
             annotation = self.current_annotations[self.current_annotation_index]
             
-            # 绘制bounding_box数组
+            # 绘制边界框
             if 'bounding_box' in annotation:
                 boxes = annotation['bounding_box']
                 for i, box_info in enumerate(boxes):
                     if isinstance(box_info, dict) and 'box' in box_info:
                         box = box_info['box']
                         label = box_info.get('label', f'Object {i+1}')
-                        # 确定颜色：如果是当前编辑的bbox，使用特殊颜色
-                        is_editing_current = (self.bbox_edit_mode and self.editing_bbox and 
-                                            self.editing_bbox[0] == 'bounding_box' and self.editing_bbox[1] == i)
-                        color = (0, 255, 0) if is_editing_current else (0, 255, 255)  # 绿色表示正在编辑
-                        thickness = 4 if is_editing_current else 2
-                        if is_editing_current:
-                            label = f"🎯 {label} (EDITING)"
-                        self.draw_single_bbox(annotated_frame, box, label, color, thickness)
-            
-            # 绘制first_bounding_box
-            if 'first_bounding_box' in annotation:
-                box = annotation['first_bounding_box']
-                # 确定颜色：如果是当前编辑的first_bounding_box，使用特殊颜色
-                is_editing_current = (self.bbox_edit_mode and self.editing_bbox and 
-                                    self.editing_bbox[0] == 'first_bounding_box')
-                color = (0, 255, 0) if is_editing_current else (255, 0, 0)  # 绿色表示正在编辑，红色表示普通
-                thickness = 4 if is_editing_current else 2
-                label = 'First Bounding Box'
-                if is_editing_current:
-                    label = "🎯 First Bounding Box (EDITING)"
-                self.draw_single_bbox(annotated_frame, box, label, color, thickness)
+                        self.draw_single_bbox(annotated_frame, box, label, (0, 255, 255))
                         
-        # 临时bbox会在display_frame_on_canvas中绘制
         self.display_frame_on_canvas(annotated_frame)
         
     def display_frame_on_canvas(self, frame):
@@ -865,18 +907,8 @@ class AnnotationReviewer:
             ]
             cv2.rectangle(resized_frame, (temp_bbox_scaled[0], temp_bbox_scaled[1]), 
                          (temp_bbox_scaled[2], temp_bbox_scaled[3]), (255, 255, 0), 3)
-            
-            # 显示当前编辑的bbox信息
-            edit_info = "EDITING..."
-            if self.editing_bbox:
-                bbox_type, bbox_idx = self.editing_bbox
-                if bbox_type == 'first_bounding_box':
-                    edit_info = "🎯 EDITING: first_bounding_box"
-                else:
-                    edit_info = f"🎯 EDITING: {bbox_type}[{bbox_idx}]"
-            
-            cv2.putText(resized_frame, edit_info, (temp_bbox_scaled[0], temp_bbox_scaled[1] - 10),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
+            cv2.putText(resized_frame, "EDITING...", (temp_bbox_scaled[0], temp_bbox_scaled[1] - 10),
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
         
         # 转换颜色空间并显示
         frame_rgb = cv2.cvtColor(resized_frame, cv2.COLOR_BGR2RGB)
@@ -945,11 +977,7 @@ class AnnotationReviewer:
             
     def update_frame_display(self):
         """更新帧显示"""
-        if self.current_type == "frames" and self.current_image is not None:
-            # Frame模式：重新显示当前图片
-            self.display_frame_with_annotations()
-        elif self.video_cap:
-            # Video/clip模式：重新绘制当前帧
+        if self.video_cap:
             ret, frame = self.video_cap.read()
             if ret:
                 annotated_frame = self.draw_annotations_on_frame(frame)
@@ -1182,69 +1210,35 @@ class AnnotationReviewer:
         self.load_data(self.json_path)
         
     def on_e_key(self, event):
-        """E键事件处理 - 循环编辑多个bbox"""
+        """E键事件处理 - 切换bbox编辑模式"""
         if not self.current_annotations:
             return
             
         # 检查当前标注是否有可编辑的bbox字段
         current_annotation = self.current_annotations[self.current_annotation_index]
+        has_editable_bbox = ('first_bounding_box' in current_annotation or 
+                           ('bounding_box' in current_annotation and current_annotation['bounding_box']))
         
-        # 计算总的可编辑bbox数量
-        bbox_count = 0
-        bbox_list = []  # (type, index) 形式的列表
-        
-        if 'first_bounding_box' in current_annotation:
-            bbox_count += 1
-            bbox_list.append(('first_bounding_box', 0))
-            
-        if 'bounding_box' in current_annotation and current_annotation['bounding_box']:
-            bbox_boxes = current_annotation['bounding_box']
-            for i in range(len(bbox_boxes)):
-                bbox_count += 1
-                bbox_list.append(('bounding_box', i))
-        
-        if bbox_count == 0:
+        if not has_editable_bbox:
             messagebox.showinfo("Edit Mode", "Current annotation has no bounding box to edit.\nOnly annotations with 'first_bounding_box' or 'bounding_box' fields can be edited.")
             return
+            
+        self.bbox_edit_mode = not self.bbox_edit_mode
         
-        if not self.bbox_edit_mode:
-            # 第一次按E键：进入编辑模式，编辑第一个bbox
-            self.bbox_edit_mode = True
-            self.current_bbox_edit_index = 0
+        if self.bbox_edit_mode:
+            # 进入编辑模式
             self.stop_playback()  # 暂停播放
             self.video_canvas.config(cursor="crosshair")
-            
-            bbox_type, bbox_idx = bbox_list[self.current_bbox_edit_index]
-            self.editing_bbox = (bbox_type, bbox_idx)
-            
-            if bbox_count == 1:
-                messagebox.showinfo("Edit Mode", f"Bbox Edit Mode ON\n\nEditing: {bbox_type}\n\nClick and drag to edit the bounding box.\nPress E again to exit edit mode.")
-            else:
-                messagebox.showinfo("Edit Mode", f"Bbox Edit Mode ON\n\nEditing: {bbox_type} ({self.current_bbox_edit_index + 1}/{bbox_count})\n\nClick and drag to edit the bounding box.\nPress E to edit next bbox or exit when done.")
-            print(f"Bbox edit mode ON - editing {bbox_type}")
-            
+            messagebox.showinfo("Edit Mode", "Bbox Edit Mode ON\n\nClick and drag on the video to edit bounding boxes.\nPress E again to exit edit mode.")
+            print("Bbox edit mode ON")
         else:
-            # 已在编辑模式中
-            self.current_bbox_edit_index += 1
-            
-            if self.current_bbox_edit_index >= bbox_count:
-                # 所有bbox都编辑完了，退出编辑模式
-                self.bbox_edit_mode = False
-                self.current_bbox_edit_index = 0
-                self.video_canvas.config(cursor="")
-                self.editing_bbox = None
-                self.bbox_start_point = None
-                self.temp_bbox = None
-                messagebox.showinfo("Edit Mode", "Bbox Edit Mode OFF\n\nAll bounding boxes edited.")
-                print("Bbox edit mode OFF")
-            else:
-                # 切换到下一个bbox
-                bbox_type, bbox_idx = bbox_list[self.current_bbox_edit_index]
-                self.editing_bbox = (bbox_type, bbox_idx)
-                self.bbox_start_point = None
-                self.temp_bbox = None
-                messagebox.showinfo("Edit Mode", f"Now editing: {bbox_type} ({self.current_bbox_edit_index + 1}/{bbox_count})\n\nClick and drag to edit this bounding box.\nPress E to edit next bbox or exit when done.")
-                print(f"Switched to editing {bbox_type}")
+            # 退出编辑模式
+            self.video_canvas.config(cursor="")
+            self.editing_bbox = None
+            self.bbox_start_point = None
+            self.temp_bbox = None
+            messagebox.showinfo("Edit Mode", "Bbox Edit Mode OFF")
+            print("Bbox edit mode OFF")
         
         self.update_frame_display()
     
@@ -1269,6 +1263,10 @@ class AnnotationReviewer:
     def on_s_key(self, event):
         """S键事件处理 - 保存数据"""
         self.save_data()
+
+    def on_t_key(self, event):
+        """T键事件处理 - 同步旧版annotation"""
+        self.toggle_old_transfer()
     
     def on_enter_key(self, event):
         """Enter键事件处理 - 播放/暂停"""
@@ -1323,79 +1321,61 @@ class AnnotationReviewer:
 
     def on_u_key(self, event):
         """U键事件处理 - 跳转到下一个包含未审核标注的文件"""
-        self.find_next_unreviewed_file()
+        shift_pressed = bool(event.state & 0x1) if event else False
+        if shift_pressed:
+            task_filter = {"Spatial_Temporal_Grounding", "Continuous_Actions_Caption"}
+            self.find_next_unreviewed_file(task_filter=task_filter)
+        else:
+            self.find_next_unreviewed_file()
 
-    def find_next_unreviewed_file(self):
-        """在定义的顺序中查找下一个包含未审核标注的文件并加载它
+    def annotation_matches_filter(self, annotation, task_filter):
+        if task_filter and annotation.get('task_L2') not in task_filter:
+            return False
+        return not annotation.get('reviewed', False)
 
-        顺序规则:
-        1. 优先完成当前运动的所有clips
-        2. 再完成当前运动的所有frames  
-        3. 然后切换到下一个运动
+    def find_next_unreviewed_file(self, task_filter=None):
+        """查找并跳转到下一个未审核文件（支持 clips 与 frames 自动回退）
+
+        - 优先使用当前选择的数据类型（`self.current_type` 或单选框）。
+        - 如果当前类型在某事件下没有文件，自动回退到另一类型。
+        - 载入目标文件时，先设置数据类型，再设置事件与ID，保证列表联动正常。
         """
-        # Ensure we have an ordering of events
         events = list(self.event_combo['values']) if self.event_combo['values'] is not None else []
         if not events:
-            messagebox.showinfo("Info", "No events available")
+            messagebox.showinfo("Info", "没有可用事件")
             return
 
-        # 获取所有运动列表（去重）
-        sports = []
+        # 当前首选类型与备用类型
+        preferred_type = (self.current_type or self.type_var.get() or 'clips')
+        fallback_type = 'frames' if preferred_type == 'clips' else 'clips'
+        types_order = [preferred_type, fallback_type]
+
+        # 构建有序文件列表：(sport, event, data_type, id)
+        ordered_files = []
         for ev in events:
             try:
                 sport, event = ev.split('/')
-                if sport not in sports:
-                    sports.append(sport)
             except Exception:
                 continue
 
-        if not sports:
-            messagebox.showinfo("Info", "No sports available")
-            return
-
-        # Build ordered list prioritizing: current sport clips → current sport frames → next sport clips → next sport frames...
-        ordered_files = []
-        current_sport = self.current_sport
-        
-        # 找到当前运动在列表中的位置
-        current_sport_idx = 0
-        if current_sport in sports:
-            current_sport_idx = sports.index(current_sport)
-
-        # 按优先级构建文件列表
-        for sport_offset in range(len(sports)):
-            sport_idx = (current_sport_idx + sport_offset) % len(sports)
-            sport = sports[sport_idx]
-            
-            # 为每个运动，先添加clips，再添加frames
-            for file_type in ['clips', 'frames']:
-                # 找到该运动的所有事件
-                sport_events = [ev for ev in events if ev.startswith(f"{sport}/")]
-                for ev in sport_events:
-                    try:
-                        sport_name, event_name = ev.split('/')
-                    except Exception:
-                        continue
-                    
-                    type_path = self.output_path / sport_name / event_name / file_type
-                    if not type_path.exists():
-                        continue
-                    
-                    ids = []
-                    for json_file in type_path.glob("*.json"):
-                        ids.append(json_file.stem)
-                    ids.sort(key=lambda x: int(x) if x.isdigit() else x)
-                    
-                    for _id in ids:
-                        ordered_files.append((sport_name, event_name, file_type, _id))
+            for data_type in types_order:
+                type_path = self.output_path / sport / event / data_type
+                if not type_path.exists():
+                    continue
+                ids = []
+                for json_file in type_path.glob("*.json"):
+                    ids.append(json_file.stem)
+                ids.sort(key=lambda x: int(x) if x.isdigit() else x)
+                for _id in ids:
+                    ordered_files.append((sport, event, data_type, _id))
 
         if not ordered_files:
-            messagebox.showinfo("Info", "No files found in output")
+            messagebox.showinfo("Info", "在输出目录未找到任何文件")
             return
 
-        # Find current position
+        # 确定当前位置（如果当前文件在列表中，则从其后一个开始）
         try:
-            cur_tuple = (self.current_sport, self.current_event, self.current_type or self.type_var.get(), self.current_id)
+            cur_tuple = (self.current_sport, self.current_event, (self.current_type or self.type_var.get()), self.current_id)
         except Exception:
             cur_tuple = None
 
@@ -1405,59 +1385,50 @@ class AnnotationReviewer:
 
         n = len(ordered_files)
         found = False
+        target = None
 
-        # loop through ordered files starting after current
+        # 从当前位置循环查找未审核文件
         for i in range(n):
             idx = (start_index + i) % n
-            sport, event, file_type, _id = ordered_files[idx]
-            json_path = self.output_path / sport / event / file_type / f"{_id}.json"
+            sport, event, data_type, _id = ordered_files[idx]
+            json_path = self.output_path / sport / event / data_type / f"{_id}.json"
             try:
                 with open(json_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     annotations = data.get('annotations', [])
-                    # if any annotation is not reviewed
-                    for ann in annotations:
-                        if not ann.get('reviewed', False):
-                            found = True
-                            target = (sport, event, file_type, _id)
-                            break
-                    if found:
+                    if any(self.annotation_matches_filter(ann, task_filter) for ann in annotations):
+                        found = True
+                        target = (sport, event, data_type, _id)
                         break
             except Exception:
-                # ignore malformed/unreadable files
+                # 忽略不可读文件
                 continue
 
-        if not found:
-            messagebox.showinfo("Info", "All files have been reviewed!")
+        if not found or not target:
+            messagebox.showinfo("Info", "没有下一个未审核文件")
             return
 
-        # Save current data quietly
+        # 静默保存当前数据（若当前选择完整）
         try:
-            self.save_data()
+            if all([self.current_sport, self.current_event, self.current_id, (self.current_type or self.type_var.get())]):
+                self.save_data()
         except Exception:
             pass
 
-        # Load the target file: set selections then load
-        sport, event, file_type, _id = target
+        # 加载目标文件：先设置类型，再设置事件与ID
+        sport, event, data_type, _id = target
+        self.type_var.set(data_type)
         self.event_var.set(f"{sport}/{event}")
         self.on_event_selected()
-        # set the file type (clips or frames)
-        self.type_var.set(file_type)
-        # set id and load
         self.id_var.set(_id)
         self.on_id_selected()
-        self.load_data()
 
-        # After loading, jump to first unreviewed annotation
+        # 跳到第一个未审核标注
         for idx, ann in enumerate(self.current_annotations):
-            if not ann.get('reviewed', False):
+            if self.annotation_matches_filter(ann, task_filter):
                 self.current_annotation_index = idx
                 break
         self.display_current_annotation()
-        
-        # 显示跳转信息
-        messagebox.showinfo("Jumped to next unreviewed", 
-                          f"Sport: {sport}\nEvent: {event}\nType: {file_type}\nID: {_id}\n\nFound unreviewed annotation(s)")
             
     def __del__(self):
         """析构函数"""
