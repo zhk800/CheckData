@@ -307,8 +307,11 @@ class AnnotationReviewer:
         # 更新临时bbox
         x1, y1 = self.bbox_start_point
         self.temp_bbox = [min(x1, video_x), min(y1, video_y), max(x1, video_x), max(y1, video_y)]
-        # 在编辑模式下只重新绘制当前帧，不推进视频
-        self.redraw_current_frame()
+        # 在编辑模式下即时重绘当前画面
+        if self.current_type == "clips":
+            self.redraw_current_frame()
+        else:
+            self.display_frame_with_annotations()
         
     def on_canvas_release(self, event):
         """鼠标释放事件处理"""
@@ -353,10 +356,13 @@ class AnnotationReviewer:
             annotation['retrack'] = True  # 标记需要重新跟踪
             print(f"Created new first_bounding_box: {new_bbox}")
             
-        # 清理临时状态
+        # 清理临时状态并刷新画面，保持当前帧以便查看新框
         self.bbox_start_point = None
         self.temp_bbox = None
-        self.update_frame_display()
+        if self.current_type == "clips":
+            self.redraw_current_frame()
+        else:
+            self.display_frame_with_annotations()
         
         messagebox.showinfo("Success", f"Bbox updated!\nNew bbox: {new_bbox}\nRetrack flag added: true\n\nDon't forget to save (S key)")
         
@@ -819,13 +825,20 @@ class AnnotationReviewer:
         # 静态边界框
         if 'bounding_box' in annotation:
             boxes = annotation['bounding_box']
-            for i, box_info in enumerate(boxes):
-                if isinstance(box_info, dict) and 'box' in box_info:
-                    box = box_info['box']
-                    label = box_info.get('label', f'Object {i+1}')
-                    self.draw_single_bbox(frame, box, label, (0, 255, 255))
-                elif isinstance(box_info, list) and len(box_info) == 4:
-                    self.draw_single_bbox(frame, box_info, f'Object {i+1}', (0, 255, 255))
+            if (
+                isinstance(boxes, list)
+                and len(boxes) == 4
+                and all(isinstance(coord, (int, float)) for coord in boxes)
+            ):
+                self.draw_single_bbox(frame, boxes, 'Object 1', (0, 255, 255))
+            else:
+                for i, box_info in enumerate(boxes):
+                    if isinstance(box_info, dict) and 'box' in box_info:
+                        box = box_info['box']
+                        label = box_info.get('label', f'Object {i+1}')
+                        self.draw_single_bbox(frame, box, label, (0, 255, 255))
+                    elif isinstance(box_info, list) and len(box_info) == 4:
+                        self.draw_single_bbox(frame, box_info, f'Object {i+1}', (0, 255, 255))
                     
         # 第一帧边界框
         if 'first_bounding_box' in annotation:
@@ -875,11 +888,22 @@ class AnnotationReviewer:
             # 绘制边界框
             if 'bounding_box' in annotation:
                 boxes = annotation['bounding_box']
-                for i, box_info in enumerate(boxes):
-                    if isinstance(box_info, dict) and 'box' in box_info:
-                        box = box_info['box']
-                        label = box_info.get('label', f'Object {i+1}')
-                        self.draw_single_bbox(annotated_frame, box, label, (0, 255, 255))
+                if (
+                    isinstance(boxes, list)
+                    and len(boxes) == 4
+                    and all(isinstance(coord, (int, float)) for coord in boxes)
+                ):
+                    self.draw_single_bbox(annotated_frame, boxes, 'Object 1', (0, 255, 255))
+                else:
+                    for i, box_info in enumerate(boxes):
+                        if isinstance(box_info, dict) and 'box' in box_info:
+                            box = box_info['box']
+                            label = box_info.get('label', f'Object {i+1}')
+                            self.draw_single_bbox(annotated_frame, box, label, (0, 255, 255))
+                        elif isinstance(box_info, list) and len(box_info) == 4:
+                            self.draw_single_bbox(annotated_frame, box_info, f'Object {i+1}', (0, 255, 255))
+            if 'first_bounding_box' in annotation:
+                self.draw_single_bbox(annotated_frame, annotation['first_bounding_box'], 'Tracked Object', (255, 0, 0))
                         
         self.display_frame_on_canvas(annotated_frame)
         
