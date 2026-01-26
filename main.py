@@ -57,6 +57,10 @@ class AnnotationReviewer:
         self.editing_bbox = None       # 当前编辑的bbox（'first_bounding_box' 或 ('bounding_box', index)）
         self.bbox_start_point = None   # bbox绘制的起始点
         self.temp_bbox = None          # 临时bbox坐标
+        self.editable_bboxes = []      # 可编辑bbox目标列表
+        self.current_edit_bbox_index = 0
+        self.edit_annotation_key = None
+        self.active_edit_target = None
         
         # 图像显示相关
         self.current_image = None
@@ -184,7 +188,7 @@ class AnnotationReviewer:
         replay_btn.pack(side=tk.LEFT, padx=8)
         
         # Keyboard shortcuts hint
-        hint_label = tk.Label(controls_frame, text="💡 Space: Play/Pause | B: bbox | W: window | E: Edit bbox | F5: Reload", 
+        hint_label = tk.Label(controls_frame, text="💡 Space: Play/Pause | B: bbox | W: window | E: Edit bbox | F5: Reload | Del: Delete annotation", 
                               font=('Arial', 11), fg='#666666')
         hint_label.pack(side=tk.LEFT, padx=20)
         
@@ -214,6 +218,7 @@ class AnnotationReviewer:
         self.root.bind('<KeyPress-t>', self.on_t_key)  # T键同步旧数据
         self.root.bind('<KeyPress-T>', self.on_t_key)
         self.root.bind('<Return>', self.on_enter_key)  # Enter键播放/暂停
+        self.root.bind('<Delete>', self.on_delete_key)  # Delete键删除当前标注并重新加载
         self.root.focus_set()
         
         # 进度条
@@ -290,81 +295,144 @@ class AnnotationReviewer:
             
         self.bbox_start_point = (video_x, video_y)
         print(f"Start bbox at: ({video_x}, {video_y})")
+        if self.bbox_edit_mode and self.editing_bbox:
+            self.editing_bbox = self.editable_bboxes[self.current_edit_bbox_index]
+            self.display_current_annotation(refresh_media=False)
         
     def on_canvas_drag(self, event):
         """鼠标拖拽事件处理"""
         if not self.bbox_edit_mode or not self.bbox_start_point:
             return
-            
-        # 确保视频暂停
+
         self.stop_playback()
-            
-        # 转换鼠标坐标到视频坐标
         video_x, video_y = self.canvas_to_video_coords(event.x, event.y)
         if video_x is None:
             return
-            
-        # 更新临时bbox
+
         x1, y1 = self.bbox_start_point
         self.temp_bbox = [min(x1, video_x), min(y1, video_y), max(x1, video_x), max(y1, video_y)]
-        # 在编辑模式下即时重绘当前画面
-        if self.current_type == "clips":
-            self.redraw_current_frame()
-        else:
-            self.display_frame_with_annotations()
-        
+        self.refresh_visual()
+
     def on_canvas_release(self, event):
         """鼠标释放事件处理"""
         if not self.bbox_edit_mode or not self.bbox_start_point:
             return
-            
-        # 转换鼠标坐标到视频坐标
+
         video_x, video_y = self.canvas_to_video_coords(event.x, event.y)
         if video_x is None:
             return
-            
-        # 完成bbox编辑
+
         x1, y1 = self.bbox_start_point
         new_bbox = [min(x1, video_x), min(y1, video_y), max(x1, video_x), max(y1, video_y)]
-        
-        # 检查bbox大小是否合理
+
         if abs(new_bbox[2] - new_bbox[0]) < 10 or abs(new_bbox[3] - new_bbox[1]) < 10:
             print("Bbox too small, ignoring")
             self.bbox_start_point = None
             self.temp_bbox = None
             return
-            
-        # 保存bbox到当前标注
+
         annotation = self.current_annotations[self.current_annotation_index]
-        
-        # 选择要更新的bbox类型
-        if 'first_bounding_box' in annotation:
-            annotation['first_bounding_box'] = new_bbox
-            annotation['retrack'] = True  # 标记需要重新跟踪
-            print(f"Updated first_bounding_box: {new_bbox}")
-        elif 'bounding_box' in annotation and len(annotation['bounding_box']) > 0:
-            # 更新第一个bounding_box
-            if isinstance(annotation['bounding_box'][0], dict):
-                annotation['bounding_box'][0]['box'] = new_bbox
-            else:
-                annotation['bounding_box'][0] = new_bbox
-            annotation['retrack'] = True  # 标记需要重新跟踪
-            print(f"Updated bounding_box[0]: {new_bbox}")
+        target_entry = None
+        if self.bbox_edit_mode and self.active_edit_target:
+            target_entry = self.active_edit_target
+        updated_label = None
+
+        if target_entry:
+            target_type, idx, label = target_entry
+            if target_type == 'first':
+                annotation['first_bounding_box'] = new_bbox
+            elif target_type == 'bbox_scalar':
+                annotation['bounding_box'] = new_bbox
+            elif target_type == 'bbox_dict':
+                boxes = annotation.get('bounding_box')
+                if isinstance(boxes, list) and idx is not None and idx < len(boxes):
+                    boxes[idx]['box'] = new_bbox
+            elif target_type == 'bbox_list':
+                boxes = annotation.get('bounding_box')
+                if isinstance(boxes, list) and idx is not None and idx < len(boxes):
+                    boxes[idx] = new_bbox
+            updated_label = label
+            annotation['retrack'] = True
         else:
-            # 创建first_bounding_box
-            annotation['first_bounding_box'] = new_bbox
-            annotation['retrack'] = True  # 标记需要重新跟踪
-            print(f"Created new first_bounding_box: {new_bbox}")
-            
-        # 清理临时状态并刷新画面，保持当前帧以便查看新框
+            if 'first_bounding_box' in annotation:
+                annotation['first_bounding_box'] = new_bbox
+                updated_label = 'first_bounding_box'
+            elif 'bounding_box' in annotation and annotation['bounding_box']:
+                boxes = annotation['bounding_box']
+                if isinstance(boxes[0], dict):
+                    boxes[0]['box'] = new_bbox
+                else:
+                    boxes[0] = new_bbox
+                updated_label = 'bounding_box[0]'
+            else:
+                annotation['first_bounding_box'] = new_bbox
+                updated_label = 'first_bounding_box'
+            annotation['retrack'] = True
+
         self.bbox_start_point = None
         self.temp_bbox = None
-        if self.current_type == "clips":
-            self.redraw_current_frame()
-        else:
-            self.display_frame_with_annotations()
-        
-        messagebox.showinfo("Success", f"Bbox updated!\nNew bbox: {new_bbox}\nRetrack flag added: true\n\nDon't forget to save (S key)")
+        self.refresh_visual()
+
+        label_text = updated_label or 'bounding_box'
+        messagebox.showinfo(
+            "Success",
+            f"Updated {label_text}!\nNew bbox: {new_bbox}\nRetrack flag added: true\n\nDon't forget to save (S key)",
+        )
+
+    def on_e_key(self, event):
+        """E键事件处理 - 轮换bbox编辑目标"""
+        if not self.current_annotations:
+            return
+
+        current_annotation = self.current_annotations[self.current_annotation_index]
+        entries = self.build_editable_bbox_list(current_annotation)
+
+        if not entries:
+            messagebox.showinfo(
+                "Edit Mode",
+                "Current annotation has no editable bounding boxes.\nAdd 'first_bounding_box' or 'bounding_box' before using E.",
+            )
+            return
+
+        annotation_key = (self.current_json_path, self.current_annotation_index)
+
+        if not self.bbox_edit_mode or annotation_key != self.edit_annotation_key:
+            # 进入编辑模式或重新定位到当前标注
+            self.stop_playback()
+            self.bbox_edit_mode = True
+            self.video_canvas.config(cursor="crosshair")
+            self.editable_bboxes = entries
+            self.current_edit_bbox_index = 0
+            self.editing_bbox = self.editable_bboxes[0]
+            self.active_edit_target = self.editing_bbox
+            self.edit_annotation_key = annotation_key
+            label = self.describe_edit_target(self.editing_bbox)
+            messagebox.showinfo(
+                "Edit Mode",
+                f"Bbox Edit Mode ON\nCurrent target: {label}\n\nUse mouse drag to edit. Press E again to jump to the next target; after the last target, E will exit.",
+            )
+            self.refresh_visual()
+            self.display_current_annotation(refresh_media=False)
+            return
+
+        # 已在编辑模式下，切换到下一个目标或退出
+        self.current_edit_bbox_index += 1
+        if self.current_edit_bbox_index >= len(self.editable_bboxes):
+            self.exit_bbox_edit_mode(notify=True)
+            self.display_current_annotation(refresh_media=False)
+            return
+
+        self.editing_bbox = self.editable_bboxes[self.current_edit_bbox_index]
+        self.active_edit_target = self.editing_bbox
+        label = self.describe_edit_target(self.editing_bbox)
+        self.temp_bbox = None
+        self.refresh_visual()
+
+        label_text = updated_label or 'bounding_box'
+        messagebox.showinfo(
+            "Success",
+            f"Updated {label_text}!\nNew bbox: {new_bbox}\nRetrack flag added: true\n\nDon't forget to save (S key)",
+        )
         
     def canvas_to_video_coords(self, canvas_x, canvas_y):
         """将画布坐标转换为视频坐标"""
@@ -580,7 +648,7 @@ class AnnotationReviewer:
 
         return candidates[0]
         
-    def display_current_annotation(self):
+    def display_current_annotation(self, refresh_media=True):
         """显示当前标注信息"""
         if not self.current_annotations:
             self.annotation_text.delete(1.0, tk.END)
@@ -591,6 +659,12 @@ class AnnotationReviewer:
             self.current_annotation_index = 0
             
         annotation = self.current_annotations[self.current_annotation_index]
+        annotation_key = (self.current_json_path, self.current_annotation_index)
+        if self.bbox_edit_mode and annotation_key != self.edit_annotation_key:
+            self.exit_bbox_edit_mode(notify=False, refresh=False)
+        if not self.bbox_edit_mode:
+            self.edit_annotation_key = None
+            self.active_edit_target = None
         self.current_old_annotation = self.find_old_annotation(annotation)
         current_key = (self.current_json_path, self.current_annotation_index)
         if self.last_transfer and self.last_transfer.get('key') != current_key:
@@ -602,6 +676,8 @@ class AnnotationReviewer:
         info_text += f"Task Type: {annotation.get('task_L1', 'N/A')}/{annotation.get('task_L2', 'N/A')}\n"
         info_text += f"Reviewed: {'Yes' if annotation.get('reviewed', False) else 'No'}\n"
         info_text += f"exist_old: {'true' if self.current_old_annotation else 'false'}\n"
+        if self.bbox_edit_mode and self.active_edit_target:
+            info_text += f"Editing Target: {self.describe_edit_target(self.active_edit_target)}\n"
         
         # 显示retrack状态
         if annotation.get('retrack', False):
@@ -632,13 +708,14 @@ class AnnotationReviewer:
         self.annotation_text.delete(1.0, tk.END)
         self.annotation_text.insert(1.0, info_text)
         
-        # 更新可视化
-        if self.current_type == "clips":
-            self.find_bbox_frames()  # 重新查找bbox帧
-            self.find_window_frames()  # 重新查找窗口帧
-            self.update_video_display()
-        else:
-            self.display_frame_with_annotations()
+        if refresh_media:
+            # 更新可视化
+            if self.current_type == "clips":
+                self.find_bbox_frames()  # 重新查找bbox帧
+                self.find_window_frames()  # 重新查找窗口帧
+                self.update_video_display()
+            else:
+                self.display_frame_with_annotations()
 
     def toggle_old_transfer(self):
         """切换是否应用旧数据中的annotation内容"""
@@ -722,17 +799,62 @@ class AnnotationReviewer:
         
         # 显示帧
         self.display_frame_on_canvas(annotated_frame)
-        
-        # 更新进度
+
+        # 更新播放状态
         progress = (self.current_frame / self.total_frames) * 100 if self.total_frames > 0 else 0
         self.progress_var.set(progress)
         self.frame_label.config(text=f"{self.current_frame}/{self.total_frames}")
-        
+
         self.current_frame += 1
-        
-        # 只有在播放状态下才继续播放
+
         if self.is_playing:
-            self.play_after_id = self.root.after(int(1000 / self.fps), self.play_video_with_annotations)
+            delay = int(1000 / self.fps) if self.fps else 33
+            self.play_after_id = self.root.after(delay, self.play_video_with_annotations)
+        
+    def refresh_visual(self):
+        """根据当前数据类型刷新画面"""
+        if self.current_type == "clips":
+            self.redraw_current_frame()
+        else:
+            self.display_frame_with_annotations()
+
+    def build_editable_bbox_list(self, annotation):
+        """生成当前标注中可编辑bbox的列表"""
+        entries = []
+        first_box = annotation.get('first_bounding_box')
+        if isinstance(first_box, (list, tuple)) and len(first_box) == 4:
+            entries.append(('first', None, 'first_bounding_box'))
+
+        boxes = annotation.get('bounding_box')
+        if isinstance(boxes, list):
+            if len(boxes) == 4 and all(isinstance(coord, (int, float)) for coord in boxes):
+                entries.append(('bbox_scalar', None, 'bounding_box'))
+            else:
+                for idx, box in enumerate(boxes):
+                    if isinstance(box, dict) and isinstance(box.get('box'), list):
+                        entries.append(('bbox_dict', idx, f'bounding_box[{idx}]'))
+                    elif isinstance(box, list) and len(box) == 4 and all(isinstance(coord, (int, float)) for coord in box):
+                        entries.append(('bbox_list', idx, f'bounding_box[{idx}]'))
+        return entries
+
+    def describe_edit_target(self, entry):
+        return entry[2] if entry else 'N/A'
+
+    def exit_bbox_edit_mode(self, notify=False, refresh=True):
+        """退出bbox编辑模式并清理状态"""
+        self.bbox_edit_mode = False
+        self.editable_bboxes = []
+        self.current_edit_bbox_index = 0
+        self.edit_annotation_key = None
+        self.active_edit_target = None
+        self.bbox_start_point = None
+        self.temp_bbox = None
+        self.video_canvas.config(cursor="")
+
+        if notify:
+            messagebox.showinfo("Edit Mode", "Bbox Edit Mode OFF")
+        if refresh:
+            self.refresh_visual()
     
     def stop_playback(self):
         """停止视频播放并取消定时器"""
@@ -1034,7 +1156,7 @@ class AnnotationReviewer:
             self.display_current_annotation()
             messagebox.showinfo("Info", "Marked as reviewed")
             
-    def save_data(self):
+    def save_data(self, silent=False):
         """保存标注数据"""
         if not all([self.current_sport, self.current_event, self.current_id, self.current_type]):
             messagebox.showwarning("Warning", "No data to save")
@@ -1055,10 +1177,32 @@ class AnnotationReviewer:
             with open(json_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
                 
-            messagebox.showinfo("Success", "Data saved")
+            if not silent:
+                messagebox.showinfo("Success", "Data saved")
             
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save data: {str(e)}")
+
+    def delete_current_annotation(self):
+        """删除当前标注并重新加载当前文件"""
+        if not self.current_annotations:
+            messagebox.showwarning("Warning", "No annotation to delete")
+            return
+
+        idx = self.current_annotation_index
+        total = len(self.current_annotations)
+        self.current_annotations.pop(idx)
+
+        # 持久化更改但不弹出保存成功提示
+        self.save_data(silent=True)
+
+        # 重新加载数据，相当于按下L键
+        self.load_data()
+
+        messagebox.showinfo(
+            "Deleted",
+            f"Deleted annotation {min(idx + 1, total)}/{total}. File reloaded.",
+        )
     
     def find_bbox_frames(self):
         """查找当前标注中包含bbox的帧"""
@@ -1237,39 +1381,6 @@ class AnnotationReviewer:
         print(f"Reloaded: {self.get_relative_path(self.json_path)}")
         self.load_data(self.json_path)
         
-    def on_e_key(self, event):
-        """E键事件处理 - 切换bbox编辑模式"""
-        if not self.current_annotations:
-            return
-            
-        # 检查当前标注是否有可编辑的bbox字段
-        current_annotation = self.current_annotations[self.current_annotation_index]
-        has_editable_bbox = ('first_bounding_box' in current_annotation or 
-                           ('bounding_box' in current_annotation and current_annotation['bounding_box']))
-        
-        if not has_editable_bbox:
-            messagebox.showinfo("Edit Mode", "Current annotation has no bounding box to edit.\nOnly annotations with 'first_bounding_box' or 'bounding_box' fields can be edited.")
-            return
-            
-        self.bbox_edit_mode = not self.bbox_edit_mode
-        
-        if self.bbox_edit_mode:
-            # 进入编辑模式
-            self.stop_playback()  # 暂停播放
-            self.video_canvas.config(cursor="crosshair")
-            messagebox.showinfo("Edit Mode", "Bbox Edit Mode ON\n\nClick and drag on the video to edit bounding boxes.\nPress E again to exit edit mode.")
-            print("Bbox edit mode ON")
-        else:
-            # 退出编辑模式
-            self.video_canvas.config(cursor="")
-            self.editing_bbox = None
-            self.bbox_start_point = None
-            self.temp_bbox = None
-            messagebox.showinfo("Edit Mode", "Bbox Edit Mode OFF")
-            print("Bbox edit mode OFF")
-        
-        self.update_frame_display()
-    
     def on_p_key(self, event):
         """P键事件处理 - 上一个标注"""
         self.prev_annotation()
@@ -1291,6 +1402,10 @@ class AnnotationReviewer:
     def on_s_key(self, event):
         """S键事件处理 - 保存数据"""
         self.save_data()
+
+    def on_delete_key(self, event):
+        """Delete键事件处理 - 删除当前标注并重新加载文件"""
+        self.delete_current_annotation()
 
     def on_t_key(self, event):
         """T键事件处理 - 同步旧版annotation"""
@@ -1393,7 +1508,8 @@ class AnnotationReviewer:
                 ids = []
                 for json_file in type_path.glob("*.json"):
                     ids.append(json_file.stem)
-                ids.sort(key=lambda x: int(x) if x.isdigit() else x)
+                # Sort numeric IDs numerically and fallback to lexicographic for mixed cases
+                ids.sort(key=lambda x: (0, int(x)) if x.isdigit() else (1, x))
                 for _id in ids:
                     ordered_files.append((sport, event, data_type, _id))
 
