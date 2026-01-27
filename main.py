@@ -97,9 +97,9 @@ class AnnotationReviewer:
         type_frame = ttk.Frame(control_frame)
         type_frame.pack(pady=8)
         ttk.Radiobutton(type_frame, text="Clips", variable=self.type_var, 
-                       value="clips", style="Large.TRadiobutton").pack(side=tk.LEFT, padx=10)
+                   value="clips", style="Large.TRadiobutton", command=self.on_type_changed).pack(side=tk.LEFT, padx=10)
         ttk.Radiobutton(type_frame, text="Frames", variable=self.type_var, 
-                       value="frames", style="Large.TRadiobutton").pack(side=tk.LEFT, padx=10)
+                   value="frames", style="Large.TRadiobutton", command=self.on_type_changed).pack(side=tk.LEFT, padx=10)
         self.type_var.set("clips")
         
         # ID selection
@@ -254,6 +254,10 @@ class AnnotationReviewer:
         if selected:
             self.current_sport, self.current_event = selected.split('/')
             self.load_ids()
+
+    def on_type_changed(self):
+        """数据类型切换回调：刷新当前事件的ID列表"""
+        self.load_ids()
             
     def load_ids(self):
         """加载当前事件下的ID列表"""
@@ -270,6 +274,15 @@ class AnnotationReviewer:
         
         ids.sort(key=lambda x: int(x) if x.isdigit() else x)
         self.id_combo['values'] = ids
+
+        # 当切换类型时，尝试保留当前ID，否则默认选中第一个
+        current_id = self.id_var.get()
+        if current_id in ids:
+            self.id_var.set(current_id)
+        elif ids:
+            self.id_var.set(ids[0])
+        else:
+            self.id_var.set("")
         
     def on_id_selected(self, event=None):
         """ID选择回调"""
