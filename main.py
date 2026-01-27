@@ -188,7 +188,7 @@ class AnnotationReviewer:
         replay_btn.pack(side=tk.LEFT, padx=8)
         
         # Keyboard shortcuts hint
-        hint_label = tk.Label(controls_frame, text="💡 Space: Play/Pause | B: bbox | W: window | E: Edit bbox | F5: Reload | Del: Delete annotation", 
+        hint_label = tk.Label(controls_frame, text="💡 Space: Play/Pause | B: bbox | W: window | E: Edit bbox | X: Swap labels | F5: Reload | Del: Delete annotation", 
                               font=('Arial', 11), fg='#666666')
         hint_label.pack(side=tk.LEFT, padx=20)
         
@@ -215,6 +215,8 @@ class AnnotationReviewer:
         self.root.bind('<KeyPress-R>', self.on_r_key)
         self.root.bind('<KeyPress-s>', self.on_s_key)  # S键保存
         self.root.bind('<KeyPress-S>', self.on_s_key)
+        self.root.bind('<KeyPress-x>', self.on_swap_bbox_labels)  # X键交换bbox标签
+        self.root.bind('<KeyPress-X>', self.on_swap_bbox_labels)
         self.root.bind('<KeyPress-t>', self.on_t_key)  # T键同步旧数据
         self.root.bind('<KeyPress-T>', self.on_t_key)
         self.root.bind('<Return>', self.on_enter_key)  # Enter键播放/暂停
@@ -1216,6 +1218,38 @@ class AnnotationReviewer:
             "Deleted",
             f"Deleted annotation {min(idx + 1, total)}/{total}. File reloaded.",
         )
+
+    def swap_bbox_labels(self):
+        """交换当前标注中前两个bbox的label字段"""
+        if not self.current_annotations:
+            messagebox.showwarning("Warning", "No annotation loaded")
+            return
+
+        annotation = self.current_annotations[self.current_annotation_index]
+        boxes = annotation.get('bounding_box')
+        if not isinstance(boxes, list) or len(boxes) < 2:
+            messagebox.showinfo("Swap Labels", "Need at least two bounding boxes to swap labels")
+            return
+
+        first, second = boxes[0], boxes[1]
+        if not (isinstance(first, dict) and isinstance(second, dict)):
+            messagebox.showinfo("Swap Labels", "Bounding boxes must contain label dictionaries to swap")
+            return
+
+        label_a = first.get('label')
+        label_b = second.get('label')
+        if label_a is None or label_b is None:
+            messagebox.showinfo("Swap Labels", "Both bounding boxes need label fields")
+            return
+
+        first['label'], second['label'] = label_b, label_a
+        annotation['retrack'] = True
+        self.display_current_annotation(refresh_media=False)
+        self.refresh_visual()
+        messagebox.showinfo(
+            "Swap Labels",
+            f"Swapped bbox labels: '{label_a}' ↔ '{label_b}'. Don't forget to save (S).",
+        )
     
     def find_bbox_frames(self):
         """查找当前标注中包含bbox的帧"""
@@ -1415,6 +1449,10 @@ class AnnotationReviewer:
     def on_s_key(self, event):
         """S键事件处理 - 保存数据"""
         self.save_data()
+
+    def on_swap_bbox_labels(self, event):
+        """X键事件处理 - 交换前两个bbox的标签"""
+        self.swap_bbox_labels()
 
     def on_delete_key(self, event):
         """Delete键事件处理 - 删除当前标注并重新加载文件"""
