@@ -1,164 +1,112 @@
 # AI标注审查系统
 
-这是一个用于审查AI标注数据的可视化工具，支持视频片段(clips)和单帧图像(frames)的标注审核。
+面向视频 clips 与单帧 frames 的标注审核工具，统一展示窗口帧、bbox 与 MOT 追踪结果，并提供高效的审核、编辑与批量修正能力。
 
-## 功能特点
+## 核心特性
+- 支持 clips / frames 双形态数据，并可同时查看窗口帧、bbox、MOT 追踪。
+- 全键盘驱动的巡检、编辑、审核流，跨文件跳转前自动尝试保存。
+- 鼠标拖拽式 bbox 编辑，自动写入 `retrack=True` 并保留历史 Scoreboard 拟合工具。
+- VS Code 集成：左侧文本区域双击可直接打开对应 JSON，再按 **L** 重新载入。
 
-1. **多格式支持**: 支持视频片段和单帧图像的标注审核
-2. **可视化显示**: 
-   - 显示边界框(bounding box)
-   - 显示窗口帧标记(window_frame)
-   - 支持MOT追踪数据可视化
-3. **交互式审核**: 
-   - 逐个审核标注
-   - 标记审核状态
-   - 保存审核结果
-4. **视频播放控制**: 
-   - 播放/暂停
-   - 进度控制
-   - 循环播放
-5. **bbox编辑功能**: 
-   - 鼠标拖拽创建/修改边界框
-   - 实时视觉反馈
-   - 自动保存到JSON文件
+> ⚙️ 启动步骤集中在 `quickstart.md`，README 仅保留工作流与功能说明。
 
-## 键盘快捷键
+## 使用流程
+1. **载入数据**：在界面选择 sport/event → clips|frames → ID 后按 **L**；若手动修改 JSON 也需重新按 **L**。
+2. **浏览验证**：clips 使用 **Space/B/W/R** 控制播放、窗口帧与 bbox 跳转；frames 直接对静态图巡检。
+3. **编辑修正**：按 **E** 进入/轮换 bbox 编辑目标，鼠标拖拽即可写入；必要时用 **X**、**C** 或 `Delete` 处理批量情况。
+4. **审核与保存**：确认无误后按 **M** 标记 reviewed，再按 **S** 将内存改动落盘。
+5. **切换对象**：同文件用 **N/P**，跨文件用 `Shift+N/P` 或 **U** / `Shift+U`，所有跳转都会先尝试保存当前修改。
 
-| 按键 | 功能 | 说明 |
-|-----|------|------|
-| **Space / Enter** | 播放/暂停 | 仅clips：切换视频播放状态 |
-| **B** | bbox帧跳转/循环 | 仅clips：依次跳到含bbox的帧并暂停，再次按键恢复播放并重置W状态 |
-| **W** | 窗口帧导航 | 仅clips：按Q→A顺序跳转窗口帧，完成一轮后自动恢复播放并重置B状态 |
-| **R** | 重播视频 | 从当前标注的Q窗口起始帧重新播放并开始循环 |
-| **L** | 加载数据 | 根据当前选择的事件/类型/ID重新载入JSON |
-| **F5** | 重新加载文件 | 不变更选择，直接从磁盘刷新当前JSON内容 |
-| **P** | 上一标注 | 切换到上一条标注记录 |
-| **N** | 下一标注 | 切换到下一条标注记录 |
-| **M** | 标记已审核 | 将当前标注设置为reviewed状态 |
-| **S** | 保存数据 | 将当前内存中的标注全部写回JSON文件 |
-| **E** | bbox编辑模式 | 进入后可按E循环切换可编辑目标，完成一轮后自动退出 |
-| **T** | 旧数据一键替换 | 将当前标注替换为旧数据同任务的内容，再按一次撤销替换 |
-| **U** | 下一个未审核文件 | 自动保存当前修改后，跳转到下一份包含未审核标注的文件 |
-| **Shift + U** | 过滤跳转 | 仅在`Spatial_Temporal_Grounding`/`Continuous_Actions_Caption`任务中查找未审核文件 |
-| **X** | 交换前两个bbox标签 | 同一标注中前两个bbox的label字段互换，并自动标记retrack |
-| **Delete** | 删除当前标注 | 移除当前annotation、静默保存并重新加载文件以保持索引正确 |
+## 快捷键一览
+| 按键 | 作用域 | 功能 |
+|------|--------|------|
+| `Space` / `Enter` | clips | 播放/暂停。 |
+| `B` | clips | 依次跳到含 bbox 的帧并暂停；再次按键恢复播放并重置 W。 |
+| `W` | clips | 按 Q→A 顺序浏览窗口帧，结束后恢复播放并重置 B。 |
+| `R` | clips | 从 `Q_window_frame` 起始帧重新播放当前片段。 |
+| `L` | 全局 | 根据当前下拉框选择重新载入 JSON。 |
+| `P` / `Shift+P` | 全局 | 上一条标注 / 上一个文件（循环，跳转前尝试保存）。 |
+| `N` / `Shift+N` | 全局 | 下一条标注 / 下一个文件。 |
+| `U` / `Shift+U` | 全局 | 下一份仍含未审核标注的文件；`Shift` 仅筛 `Spatial_Temporal_Grounding`、`Continuous_Actions_Caption`。 |
+| `M` | 全局 | 将当前标注标记为已审核。 |
+| `S` | 全局 | 将所有内存改动写回 JSON。 |
+| `E` | 编辑 | 进入 bbox 编辑；重复按可在 `first_bounding_box` 与各 `bounding_box[i]` 间轮换，遍历完自动退出。 |
+| 鼠标左键拖拽 | 编辑 | 在编辑模式下绘制/修改 bbox，松开即写入并自动设置 `retrack=True`。 |
+| `C` | ScoreboardSingle | 复制同运动前序文件的 Scoreboard bbox，并按 IOU 匹配到当前文件。 |
+| `X` | bbox | 交换当前标注前两个 `bounding_box` 的 `label` 字段。 |
+| `Delete` | 全局 | 删除当前 annotation，静默保存并重新载入文件。 |
 
-## bbox编辑模式使用
+## 操作分组
 
-1. **进入编辑模式**: 按 **E** 键；若同一标注有多个目标，重复按 **E** 可在 `first_bounding_box` 与各个 `bounding_box[i]` 之间轮换。
-2. **创建/修改bbox**: 鼠标左键拖拽绘制，松开后立即写入当前标注并自动添加 `retrack` 标记（仍需按 **S** 手动保存到文件）。
-3. **实时预览**: 拖拽过程中显示黄色虚线框和 "EDITING..." 提示。
-4. **退出编辑**: 连续按 **E** 直至循环结束或手动切换其它标注，模式会自动关闭，光标恢复常规状态。
+### Clips 播放 / 帧定位
+- `Space` / `Enter`：播放/暂停，进度条拖拽会自动暂停，方便逐帧查看。
+- `B`：逐个跳到含 bbox 的帧并暂停；再次按键恢复播放并清空 W 状态。
+- `W`：按 Q→A 顺序跳窗口帧，遍历完自动恢复播放并清空 B 状态。
+- `R`：从 `Q_window_frame` 起始帧重新播放当前片段。
 
-**编辑模式特性**:
-- 视频播放自动暂停，避免干扰编辑
-- 鼠标光标变为十字形，并在角落提示当前目标
-- 拖拽过小的框会被忽略
+### 标注 / 文件导航
+- `L`：重新载入当前所选 JSON。
+- `P` / `Shift+P`、`N` / `Shift+N`：在标注与文件间切换，跳转前自动尝试保存。
+- `U` / `Shift+U`：按是否已审核筛选下一份文件，`Shift` 仅检查指定任务。
+- `Delete`：删除当前 annotation 并立即重新载入文件以保持索引。
 
-## 标注维护快捷键
+### 审核与数据维护
+- `M`：标记当前 annotation 已审核。
+- `S`：显式保存所有改动（唯一真正写回 JSON 的动作）。
+- `C`：从历史文件复制 ScoreboardSingle bbox，并按 IOU 自动匹配。
 
-- **X 交换标签**: 当前标注中前两个 `bounding_box` 的 `label` 字段互换，可用于快速修正目标描述的顺序，操作后会自动添加 `retrack` 提示。
-- **Delete 删除标注**: 直接移除当前 annotation，静默保存文件并自动重新加载，方便清除无效任务。
-## 安装依赖
+### bbox 编辑
+- `E`：进入/轮换编辑目标，完成一圈后自动退出并恢复光标。
+- 鼠标拖拽：写入或替换 bbox，并自动添加 `retrack=True`。
+- `X`：交换前两个 bbox 的 label，方便快速修正描述顺序。
 
-```bash
-pip install -r requirements.txt
-```
+## 工作技巧
+- 左侧文本区域双击可在 VS Code 打开对应 JSON，编辑后按 **L** 回读最新结果。
+- `B` 与 `W` 互斥：触发其一会清空另一方的暂停与索引，避免状态乱套。
+- 所有跨文件跳转（`Shift+N/P`、`U` 系列）都会尝试保存当前更改；若尚未按 **S** 也不会丢失。
+- 进度条拖动可与 `B/W` 组合使用：先精准定位再触发快捷键做系统巡检。
 
-## 使用方法
+## 数据路径与格式
+- 媒体：`../Dataset/{sport}/{event}/clips|frames/{id}.{mp4|jpg}`。
+- 标注：`../output/{sport}/{event}/clips|frames/{id}.json`，旧版本可参考 `../../data/output/...`。
 
-### 基本操作流程
-1. 启动程序: `python main.py`
-2. 选择要审核的事件(sport/event)
-3. 选择数据类型(clips或frames)  
-4. 选择具体的ID
-5. 点击"加载数据"开始审核
-6. 使用键盘快捷键进行高效审核
-7. 使用bbox编辑功能修改边界框
-8. 标记审核状态并保存
-
-### 高效审核工作流
-1. **快速导航**: 使用 **W** 键按逻辑顺序查看所有关键帧
-2. **精确定位**: 使用 **B** 键跳转到包含bbox的重要帧
-3. **编辑修正**: 按 **E** 进入编辑模式，鼠标拖拽修正边界框
-4. **标记完成**: 按 **M** 标记当前标注为已审核
-5. **下一个标注**: 按 **N** 切换到下一个标注继续审核
-
-### 外部编辑集成
-- **双击标注信息**: 在VSCode中打开对应的JSON文件
-- **F5重新加载**: 外部修改后按F5刷新显示
-
-## 数据结构要求
-
-### 原始数据路径:
-- 视频: `../Dataset/{sport}/{event}/clips/{id}.mp4`
-- 图片: `../Dataset/{sport}/{event}/frames/{id}.jpg`
-
-### 标注数据路径:
-- 视频标注: `../output/{sport}/{event}/clips/{id}.json`
-- 图片标注: `../output/{sport}/{event}/frames/{id}.json`
-
-### 标注格式:
-
-#### Clips标注格式:
+**Clips JSON 示例**
 ```json
 {
   "id": "1",
-  "origin": {
-    "sport": "3x3_Basketball",
-    "event": "Men"
-  },
+  "origin": { "sport": "3x3_Basketball", "event": "Men" },
   "annotations": [
     {
       "annotation_id": "1",
-      "task_L1": "Understanding",
       "task_L2": "Spatial_Temporal_Grounding",
       "Q_window_frame": [0, 76],
       "A_window_frame": [11, 30],
       "first_bounding_box": [x1, y1, x2, y2],
-      "tracking_bboxes": {
-        "mot_file": "path/to/mot/file.txt",
-        "format": "MOTChallenge"
-      },
+      "tracking_bboxes": { "mot_file": "path/to/mot.txt" },
       "reviewed": false
     }
   ]
 }
 ```
 
-#### Frames标注格式:
+**Frames JSON 示例**
 ```json
 {
   "id": "1",
-  "origin": {
-    "sport": "Cycling_Mountain_Bike",
-    "event": "Women's_Cross-Country"
-  },
+  "origin": { "sport": "Cycling", "event": "Women's_Cross-Country" },
   "annotations": [
     {
       "annotation_id": "1",
-      "task_L1": "Understanding",
       "task_L2": "Objects_Spatial_Relationships",
       "timestamp_frame": 1,
-      "bounding_box": [
-        {
-          "label": "cyclist in black jersey",
-          "box": [x1, y1, x2, y2]
-        }
-      ],
+      "bounding_box": [ { "label": "cyclist", "box": [x1, y1, x2, y2] } ],
       "reviewed": false
     }
   ]
 }
 ```
 
-## 可视化说明
-
-### 边界框颜色:
-- **黄色**: 静态标注框 (first_bounding_box)
-- **红色**: 第一帧追踪框  
-- **青色**: MOT追踪框
-- **黄色虚线**: 编辑模式中的临时边界框
+若需安装/运行指引，请参阅 `quickstart.md`；本文件保持为操作指南与数据说明的唯一入口。
 
 ### 窗口标记:
 - **绿色 "Q BEGIN/END"**: Q窗口开始/结束帧

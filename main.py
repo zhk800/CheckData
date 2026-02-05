@@ -26,6 +26,7 @@ class AnnotationReviewer:
         self.dataset_path = Path("../Dataset")
         self.old_output_path = Path("../../data/output")
         self.old_cache = {}
+        self.scoreboard_cache = {}
         self.current_json_path = None
         self.current_old_annotation = None
         self.last_transfer = None
@@ -97,9 +98,9 @@ class AnnotationReviewer:
         type_frame = ttk.Frame(control_frame)
         type_frame.pack(pady=8)
         ttk.Radiobutton(type_frame, text="Clips", variable=self.type_var, 
-                   value="clips", style="Large.TRadiobutton", command=self.on_type_changed).pack(side=tk.LEFT, padx=10)
+                       value="clips", style="Large.TRadiobutton").pack(side=tk.LEFT, padx=10)
         ttk.Radiobutton(type_frame, text="Frames", variable=self.type_var, 
-                   value="frames", style="Large.TRadiobutton", command=self.on_type_changed).pack(side=tk.LEFT, padx=10)
+                       value="frames", style="Large.TRadiobutton").pack(side=tk.LEFT, padx=10)
         self.type_var.set("clips")
         
         # ID selection
@@ -117,7 +118,7 @@ class AnnotationReviewer:
         load_btn.pack(pady=15)
         
         # Reload button
-        reload_btn = tk.Button(control_frame, text="🔄 Reload (F5)", command=self.on_f5,
+        reload_btn = tk.Button(control_frame, text="🔄 Reload", command=self.on_f5,
                               font=button_font, bg='#2196F3', fg='white', 
                               relief='raised', bd=3, height=2, width=14)
         reload_btn.pack(pady=5)
@@ -156,9 +157,17 @@ class AnnotationReviewer:
         save_btn.pack(side=tk.LEFT, padx=5)
         # Next unreviewed button
         next_unreviewed_btn = tk.Button(review_frame, text="➡ Next Unreviewed (U)", command=self.find_next_unreviewed_file,
-                         font=button_font, bg='#E91E63', fg='white',
-                         relief='raised', bd=2, height=2, width=18)
+                 font=button_font, bg='#E91E63', fg='white',
+                 relief='raised', bd=2, height=2, width=18)
         next_unreviewed_btn.pack(side=tk.LEFT, padx=5)
+
+        scoreboard_frame = ttk.Frame(control_frame)
+        scoreboard_frame.pack(pady=5)
+        copy_sb_btn = tk.Button(scoreboard_frame, text="⬅ Copy Prev Scoreboard (C)",
+                    command=self.copy_scoreboard_from_previous_file,
+                    font=button_font, bg='#795548', fg='white',
+                    relief='raised', bd=2, height=2, width=28)
+        copy_sb_btn.pack()
         
         # 右侧视频显示区域
         video_frame = ttk.Frame(main_frame)
@@ -188,7 +197,7 @@ class AnnotationReviewer:
         replay_btn.pack(side=tk.LEFT, padx=8)
         
         # Keyboard shortcuts hint
-        hint_label = tk.Label(controls_frame, text="💡 Space: Play/Pause | B: bbox | W: window | E: Edit bbox | X: Swap labels | F5: Reload | Del: Delete annotation", 
+        hint_label = tk.Label(controls_frame, text="💡 Space: Play/Pause | B: bbox | W: window | E: Edit bbox | X: Swap labels | C: Copy prev scoreboard | Shift+N/P: Next file | Del: Delete annotation", 
                               font=('Arial', 11), fg='#666666')
         hint_label.pack(side=tk.LEFT, padx=20)
         
@@ -200,7 +209,6 @@ class AnnotationReviewer:
         self.root.bind('<KeyPress-W>', self.on_w_key)  # 大写W也支持
         self.root.bind('<KeyPress-u>', self.on_u_key)  # U键跳到下一个未审核文件（Shift+U 过滤特定任务）
         self.root.bind('<KeyPress-U>', self.on_u_key)
-        self.root.bind('<F5>', self.on_f5_key)  # F5键重新加载数据
         self.root.bind('<KeyPress-e>', self.on_e_key)  # E键切换bbox编辑模式
         self.root.bind('<KeyPress-E>', self.on_e_key)
         self.root.bind('<KeyPress-l>', self.on_l_key)  # L键加载数据
@@ -211,14 +219,14 @@ class AnnotationReviewer:
         self.root.bind('<KeyPress-N>', self.on_n_key)
         self.root.bind('<KeyPress-m>', self.on_m_key)  # M键标记已审核
         self.root.bind('<KeyPress-M>', self.on_m_key)
+        self.root.bind('<KeyPress-c>', self.on_copy_prev_scoreboard_key)
+        self.root.bind('<KeyPress-C>', self.on_copy_prev_scoreboard_key)
+        self.root.bind('<KeyPress-x>', self.on_swap_bbox_labels)
+        self.root.bind('<KeyPress-X>', self.on_swap_bbox_labels)
         self.root.bind('<KeyPress-r>', self.on_r_key)  # R键重播视频
         self.root.bind('<KeyPress-R>', self.on_r_key)
         self.root.bind('<KeyPress-s>', self.on_s_key)  # S键保存
         self.root.bind('<KeyPress-S>', self.on_s_key)
-        self.root.bind('<KeyPress-x>', self.on_swap_bbox_labels)  # X键交换bbox标签
-        self.root.bind('<KeyPress-X>', self.on_swap_bbox_labels)
-        self.root.bind('<KeyPress-t>', self.on_t_key)  # T键同步旧数据
-        self.root.bind('<KeyPress-T>', self.on_t_key)
         self.root.bind('<Return>', self.on_enter_key)  # Enter键播放/暂停
         self.root.bind('<Delete>', self.on_delete_key)  # Delete键删除当前标注并重新加载
         self.root.focus_set()
@@ -256,10 +264,6 @@ class AnnotationReviewer:
         if selected:
             self.current_sport, self.current_event = selected.split('/')
             self.load_ids()
-
-    def on_type_changed(self):
-        """数据类型切换回调：刷新当前事件的ID列表"""
-        self.load_ids()
             
     def load_ids(self):
         """加载当前事件下的ID列表"""
@@ -276,15 +280,6 @@ class AnnotationReviewer:
         
         ids.sort(key=lambda x: int(x) if x.isdigit() else x)
         self.id_combo['values'] = ids
-
-        # 当切换类型时，尝试保留当前ID，否则默认选中第一个
-        current_id = self.id_var.get()
-        if current_id in ids:
-            self.id_var.set(current_id)
-        elif ids:
-            self.id_var.set(ids[0])
-        else:
-            self.id_var.set("")
         
     def on_id_selected(self, event=None):
         """ID选择回调"""
@@ -519,6 +514,10 @@ class AnnotationReviewer:
             self.video_cap.release()
             self.video_cap = None
         self.current_image = None
+        self.total_frames = 0
+        self.current_frame = 0
+        self.progress_var.set(0)
+        self.frame_label.config(text="0/0")
         
         # 加载JSON标注数据
         json_path = (self.output_path / self.current_sport / 
@@ -568,11 +567,62 @@ class AnnotationReviewer:
             messagebox.showerror("Error", f"Cannot open video file: {video_path}")
             return
             
-        self.total_frames = int(self.video_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        metadata_frames = self.get_clip_metadata_total_frames()
+        if metadata_frames and metadata_frames > 0:
+            self.total_frames = metadata_frames
+        else:
+            self.total_frames = self.determine_total_frames(video_path)
+        if self.total_frames <= 0:
+            self.total_frames = 1
         self.fps = self.video_cap.get(cv2.CAP_PROP_FPS) or 30
         self.current_frame = 0
+        self.progress_var.set(0)
+        self.frame_label.config(text=f"0/{self.total_frames}")
         
         self.update_frame_display()
+
+    def determine_total_frames(self, video_path):
+        """获取视频的可靠总帧数，必要时回退到逐帧统计"""
+        cap_total = int(self.video_cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        if cap_total > 0:
+            return cap_total
+
+        fallback_cap = cv2.VideoCapture(str(video_path))
+        frame_count = 0
+        if fallback_cap.isOpened():
+            while True:
+                grabbed = fallback_cap.grab()
+                if not grabbed:
+                    break
+                frame_count += 1
+        fallback_cap.release()
+        return frame_count
+
+    def get_clip_metadata_total_frames(self):
+        """从与mp4同目录的JSON读取total_frames"""
+        if not all([self.current_sport, self.current_event, self.current_id]):
+            return None
+
+        meta_path = (
+            self.dataset_path
+            / self.current_sport
+            / self.current_event
+            / "clips"
+            / f"{self.current_id}.json"
+        )
+
+        if not meta_path.exists():
+            return None
+
+        try:
+            with open(meta_path, "r", encoding="utf-8") as meta_file:
+                meta_data = json.load(meta_file)
+            info = meta_data.get("info", {})
+            total_frames = info.get("total_frames") or meta_data.get("total_frames")
+            return int(total_frames) if total_frames is not None else None
+        except Exception as exc:
+            print(f"Read clip metadata failed: {exc}")
+            return None
         
     def load_frame(self):
         """加载单帧图片"""
@@ -608,6 +658,10 @@ class AnnotationReviewer:
             messagebox.showerror("Error", f"Cannot load image: {frame_path}")
             return
             
+        self.total_frames = 1
+        self.current_frame = 0
+        self.progress_var.set(0)
+        self.frame_label.config(text="0/1")
         self.display_frame_with_annotations()
 
     def get_old_json_path(self):
@@ -1219,8 +1273,230 @@ class AnnotationReviewer:
             f"Deleted annotation {min(idx + 1, total)}/{total}. File reloaded.",
         )
 
+    @staticmethod
+    def is_valid_bbox(box):
+        return (
+            isinstance(box, (list, tuple))
+            and len(box) == 4
+            and all(isinstance(coord, (int, float)) for coord in box)
+            and box[2] > box[0]
+            and box[3] > box[1]
+        )
+
+    @staticmethod
+    def compute_iou(box_a, box_b):
+        if not (AnnotationReviewer.is_valid_bbox(box_a) and AnnotationReviewer.is_valid_bbox(box_b)):
+            return 0.0
+
+        ax1, ay1, ax2, ay2 = map(float, box_a)
+        bx1, by1, bx2, by2 = map(float, box_b)
+
+        inter_x1 = max(ax1, bx1)
+        inter_y1 = max(ay1, by1)
+        inter_x2 = min(ax2, bx2)
+        inter_y2 = min(ay2, by2)
+
+        inter_w = max(0.0, inter_x2 - inter_x1)
+        inter_h = max(0.0, inter_y2 - inter_y1)
+        inter_area = inter_w * inter_h
+
+        area_a = max(0.0, (ax2 - ax1)) * max(0.0, (ay2 - ay1))
+        area_b = max(0.0, (bx2 - bx1)) * max(0.0, (by2 - by1))
+
+        denom = area_a + area_b - inter_area
+        if denom <= 0:
+            return 0.0
+        return inter_area / denom
+
+    def get_sport_scoreboard_entries(self, sport, sport_files):
+        cached = self.scoreboard_cache.get(sport)
+        sport_files_list = list(sport_files)
+
+        def build_entries():
+            entries_map = {}
+            for file_tuple in sport_files_list:
+                sport_name, event_name, data_type, file_id = file_tuple
+                json_path = self.output_path / sport_name / event_name / data_type / f"{file_id}.json"
+
+                try:
+                    stat_info = json_path.stat()
+                    mtime = stat_info.st_mtime
+                except Exception:
+                    mtime = None
+
+                boxes = []
+                try:
+                    with open(json_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        for ann in data.get('annotations', []):
+                            if ann.get('task_L2') != 'ScoreboardSingle':
+                                continue
+                            box = ann.get('bounding_box')
+                            if self.is_valid_bbox(box):
+                                boxes.append(list(box))
+                except Exception:
+                    boxes = []
+
+                entries_map[file_tuple] = {'boxes': boxes, 'mtime': mtime}
+
+            self.scoreboard_cache[sport] = {
+                'entries': entries_map,
+                'sport_files': sport_files_list,
+            }
+            return entries_map
+
+        rebuild = True
+        if cached and cached.get('sport_files') == sport_files_list:
+            rebuild = False
+            entries_map = cached.get('entries', {})
+            for file_tuple in sport_files_list:
+                sport_name, event_name, data_type, file_id = file_tuple
+                json_path = self.output_path / sport_name / event_name / data_type / f"{file_id}.json"
+                try:
+                    mtime = json_path.stat().st_mtime
+                except Exception:
+                    mtime = None
+
+                cached_entry = entries_map.get(file_tuple)
+                if not cached_entry or cached_entry.get('mtime') != mtime:
+                    rebuild = True
+                    break
+
+        if rebuild:
+            entries_map = build_entries()
+
+        return entries_map
+
+    def select_best_scoreboard_candidate(self, target_box, candidates):
+        if not candidates:
+            return None, 0.0
+
+        best_candidate = candidates[-1]
+        best_iou = 0.0
+
+        if self.is_valid_bbox(target_box):
+            max_iou = -1.0
+            for cand in candidates:
+                iou = self.compute_iou(target_box, cand['box'])
+                if iou > max_iou:
+                    max_iou = iou
+                    best_candidate = cand
+                    best_iou = iou
+        return best_candidate, best_iou
+
+    def copy_scoreboard_from_previous_file(self):
+        ordered_files = self.build_ordered_file_list()
+        if not ordered_files:
+            info_text = "没有可用事件" if not self.event_combo['values'] else "没有可用文件可用于复制"
+            messagebox.showinfo("Info", info_text)
+            return
+
+        try:
+            cur_tuple = (self.current_sport, self.current_event, (self.current_type or self.type_var.get()), self.current_id)
+        except Exception:
+            cur_tuple = None
+
+        if cur_tuple not in ordered_files:
+            messagebox.showwarning("Warning", "当前文件不在事件列表中，无法查找上一个文件")
+            return
+
+        scoreboard_annotations = [ann for ann in self.current_annotations if ann.get('task_L2') == 'ScoreboardSingle']
+        if not scoreboard_annotations:
+            messagebox.showinfo("Info", "当前文件没有 ScoreboardSingle 任务可替换")
+            return
+
+        sport = self.current_sport
+        sport_files = [ft for ft in ordered_files if ft[0] == sport]
+
+        if cur_tuple not in sport_files:
+            messagebox.showwarning("Warning", "当前文件不在该运动的文件序列中")
+            return
+
+        sport_index = {ft: idx for idx, ft in enumerate(sport_files)}
+        cur_index = sport_index[cur_tuple]
+        if cur_index == 0:
+            messagebox.showinfo("Info", "当前文件已经是该运动的第一个文件，没有可参考的历史框")
+            return
+
+        entries_map = self.get_sport_scoreboard_entries(sport, sport_files)
+
+        candidates = []
+        for file_tuple in sport_files[:cur_index]:
+            entry = entries_map.get(file_tuple)
+            if not entry or not entry.get('boxes'):
+                continue
+            for box in entry['boxes']:
+                candidates.append({'box': box, 'source': file_tuple})
+
+        if not candidates:
+            messagebox.showinfo("Info", "当前文件之前没有可用的 ScoreboardSingle bbox")
+            return
+
+        replacements = 0
+        used_sources = []
+        seen_sources = set()
+        best_iou = 0.0
+
+        for ann in scoreboard_annotations:
+            target_box = ann.get('bounding_box')
+            best_candidate, candidate_iou = self.select_best_scoreboard_candidate(target_box, candidates)
+            if not best_candidate:
+                continue
+
+            ann['bounding_box'] = list(best_candidate['box'])
+            ann['retrack'] = True
+            replacements += 1
+            best_iou = max(best_iou, candidate_iou)
+
+            source = best_candidate.get('source')
+            if source and source not in seen_sources:
+                seen_sources.add(source)
+                used_sources.append(source)
+
+        if not replacements:
+            messagebox.showinfo("Info", "未能为当前 ScoreboardSingle 任务找到可替换的框")
+            return
+
+        # 更新缓存中的当前文件记录，便于后续再利用
+        cache_entry = self.scoreboard_cache.get(sport)
+        if cache_entry:
+            entries_map = cache_entry.get('entries', {})
+            current_boxes = [ann.get('bounding_box') for ann in scoreboard_annotations if self.is_valid_bbox(ann.get('bounding_box'))]
+            try:
+                json_path = (
+                    self.output_path
+                    / self.current_sport
+                    / self.current_event
+                    / (self.current_type or self.type_var.get())
+                    / f"{self.current_id}.json"
+                )
+                current_mtime = json_path.stat().st_mtime
+            except Exception:
+                current_mtime = None
+
+            entries_map[cur_tuple] = {
+                'boxes': [list(box) for box in current_boxes],
+                'mtime': current_mtime,
+            }
+
+        self.display_current_annotation(refresh_media=False)
+        self.refresh_visual()
+
+        if used_sources:
+            src_text = ", ".join(
+                f"{src[0]}/{src[1]}/{src[2]}/{src[3]}" for src in used_sources
+            )
+        else:
+            src_text = "未知来源"
+
+        message = f"已按IOU匹配替换 Scoreboard 框，来源: {src_text}"
+        if best_iou > 0:
+            message += f"\n最高IOU: {best_iou:.2f}"
+
+        messagebox.showinfo("Success", message + "\n别忘了保存 (S)")
+
     def swap_bbox_labels(self):
-        """交换当前标注中前两个bbox的label字段"""
+        """交换当前标注中前两个bbox的标签"""
         if not self.current_annotations:
             messagebox.showwarning("Warning", "No annotation loaded")
             return
@@ -1419,22 +1695,30 @@ class AnnotationReviewer:
         """L键事件处理 - 加载数据"""
         self.load_data()
     
-    def on_f5_key(self, event):
-        """F5键事件处理 - 重新加载数据"""
-        self.on_f5()
+    def on_swap_bbox_labels(self, event):
+        """X键事件处理 - 交换前两个bbox标签"""
+        self.swap_bbox_labels()
     
     def on_f5(self, event=None):
-        """F5: 重新加载当前文件"""
+        """重新加载当前文件"""
         print(f"Reloaded: {self.get_relative_path(self.json_path)}")
         self.load_data(self.json_path)
         
     def on_p_key(self, event):
         """P键事件处理 - 上一个标注"""
-        self.prev_annotation()
+        shift_pressed = bool(event.state & 0x1) if event else False
+        if shift_pressed:
+            self.navigate_adjacent_file(direction=-1)
+        else:
+            self.prev_annotation()
     
     def on_n_key(self, event):
         """N键事件处理 - 下一个标注"""
-        self.next_annotation()
+        shift_pressed = bool(event.state & 0x1) if event else False
+        if shift_pressed:
+            self.navigate_adjacent_file(direction=1)
+        else:
+            self.next_annotation()
     
     def on_r_key(self, event):
         """R键事件处理 - 重播视频"""
@@ -1450,18 +1734,14 @@ class AnnotationReviewer:
         """S键事件处理 - 保存数据"""
         self.save_data()
 
-    def on_swap_bbox_labels(self, event):
-        """X键事件处理 - 交换前两个bbox的标签"""
-        self.swap_bbox_labels()
+    def on_copy_prev_scoreboard_key(self, event):
+        """C键事件处理 - 复制上一文件的scoreboard bbox"""
+        self.copy_scoreboard_from_previous_file()
 
     def on_delete_key(self, event):
         """Delete键事件处理 - 删除当前标注并重新加载文件"""
         self.delete_current_annotation()
 
-    def on_t_key(self, event):
-        """T键事件处理 - 同步旧版annotation"""
-        self.toggle_old_transfer()
-    
     def on_enter_key(self, event):
         """Enter键事件处理 - 播放/暂停"""
         if self.current_type == "clips" and self.video_cap:
@@ -1527,6 +1807,33 @@ class AnnotationReviewer:
             return False
         return not annotation.get('reviewed', False)
 
+    def build_ordered_file_list(self):
+        events = list(self.event_combo['values']) if self.event_combo['values'] is not None else []
+        if not events:
+            return []
+
+        preferred_type = (self.current_type or self.type_var.get() or 'clips')
+        fallback_type = 'frames' if preferred_type == 'clips' else 'clips'
+        types_order = [preferred_type, fallback_type]
+
+        ordered_files = []
+        for ev in events:
+            try:
+                sport, event = ev.split('/')
+            except ValueError:
+                continue
+
+            for data_type in types_order:
+                type_path = self.output_path / sport / event / data_type
+                if not type_path.exists():
+                    continue
+                ids = [json_file.stem for json_file in type_path.glob('*.json')]
+                ids.sort(key=lambda x: (0, int(x)) if x.isdigit() else (1, x))
+                for _id in ids:
+                    ordered_files.append((sport, event, data_type, _id))
+
+        return ordered_files
+
     def find_next_unreviewed_file(self, task_filter=None):
         """查找并跳转到下一个未审核文件（支持 clips 与 frames 自动回退）
 
@@ -1534,39 +1841,12 @@ class AnnotationReviewer:
         - 如果当前类型在某事件下没有文件，自动回退到另一类型。
         - 载入目标文件时，先设置数据类型，再设置事件与ID，保证列表联动正常。
         """
-        events = list(self.event_combo['values']) if self.event_combo['values'] is not None else []
-        if not events:
-            messagebox.showinfo("Info", "没有可用事件")
-            return
-
-        # 当前首选类型与备用类型
-        preferred_type = (self.current_type or self.type_var.get() or 'clips')
-        fallback_type = 'frames' if preferred_type == 'clips' else 'clips'
-        types_order = [preferred_type, fallback_type]
-
-        # 构建有序文件列表：(sport, event, data_type, id)
-        ordered_files = []
-        for ev in events:
-            try:
-                sport, event = ev.split('/')
-            except Exception:
-                continue
-
-            for data_type in types_order:
-                type_path = self.output_path / sport / event / data_type
-                if not type_path.exists():
-                    continue
-                ids = []
-                for json_file in type_path.glob("*.json"):
-                    ids.append(json_file.stem)
-                # Sort numeric IDs numerically and fallback to lexicographic for mixed cases
-                ids.sort(key=lambda x: (0, int(x)) if x.isdigit() else (1, x))
-                for _id in ids:
-                    ordered_files.append((sport, event, data_type, _id))
-
+        ordered_files = self.build_ordered_file_list()
         if not ordered_files:
-            messagebox.showinfo("Info", "在输出目录未找到任何文件")
+            info_text = "没有可用事件" if not self.event_combo['values'] else "在输出目录未找到任何文件"
+            messagebox.showinfo("Info", info_text)
             return
+
 
         # 确定当前位置（如果当前文件在列表中，则从其后一个开始）
         try:
@@ -1624,6 +1904,39 @@ class AnnotationReviewer:
                 self.current_annotation_index = idx
                 break
         self.display_current_annotation()
+
+    def navigate_adjacent_file(self, direction=1):
+        """在有序列表中跳转到前/后一个文件，不考虑review状态"""
+        ordered_files = self.build_ordered_file_list()
+        if not ordered_files:
+            info_text = "没有可用事件" if not self.event_combo['values'] else "在输出目录未找到任何文件"
+            messagebox.showinfo("Info", info_text)
+            return
+
+        try:
+            cur_tuple = (self.current_sport, self.current_event, (self.current_type or self.type_var.get()), self.current_id)
+        except Exception:
+            cur_tuple = None
+
+        if cur_tuple in ordered_files:
+            current_index = ordered_files.index(cur_tuple)
+            target_index = (current_index + direction) % len(ordered_files)
+        else:
+            target_index = 0 if direction >= 0 else len(ordered_files) - 1
+
+        try:
+            if all([self.current_sport, self.current_event, self.current_id, (self.current_type or self.type_var.get())]):
+                self.save_data(silent=True)
+        except Exception:
+            pass
+
+        sport, event, data_type, _id = ordered_files[target_index]
+        self.type_var.set(data_type)
+        self.event_var.set(f"{sport}/{event}")
+        self.on_event_selected()
+        self.id_var.set(_id)
+        self.on_id_selected()
+        self.display_current_annotation()
             
     def __del__(self):
         """析构函数"""
@@ -1637,3 +1950,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
+
