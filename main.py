@@ -97,10 +97,22 @@ class AnnotationReviewer:
         self.type_var = tk.StringVar()
         type_frame = ttk.Frame(control_frame)
         type_frame.pack(pady=8)
-        ttk.Radiobutton(type_frame, text="Clips", variable=self.type_var, 
-                       value="clips", style="Large.TRadiobutton").pack(side=tk.LEFT, padx=10)
-        ttk.Radiobutton(type_frame, text="Frames", variable=self.type_var, 
-                       value="frames", style="Large.TRadiobutton").pack(side=tk.LEFT, padx=10)
+        ttk.Radiobutton(
+            type_frame,
+            text="Clips",
+            variable=self.type_var,
+            value="clips",
+            style="Large.TRadiobutton",
+            command=self.on_type_changed,
+        ).pack(side=tk.LEFT, padx=10)
+        ttk.Radiobutton(
+            type_frame,
+            text="Frames",
+            variable=self.type_var,
+            value="frames",
+            style="Large.TRadiobutton",
+            command=self.on_type_changed,
+        ).pack(side=tk.LEFT, padx=10)
         self.type_var.set("clips")
         
         # ID selection
@@ -258,6 +270,15 @@ class AnnotationReviewer:
         
         self.event_combo['values'] = events
         
+    def on_type_changed(self):
+        """数据类型切换时刷新 ID 列表"""
+        if not self.current_sport or not self.current_event:
+            return
+
+        self.current_id = None
+        self.id_var.set("")
+        self.load_ids()
+
     def on_event_selected(self, event=None):
         """事件选择回调"""
         selected = self.event_var.get()
