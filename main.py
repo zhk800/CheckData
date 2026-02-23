@@ -22,8 +22,13 @@ class AnnotationReviewer:
         self.root.geometry("1200x800")
         
         # Data paths
-        self.output_path = Path("../output")
-        self.dataset_path = Path("../Dataset")
+        self.base_output_path = Path("../output")
+        self.base_dataset_path = Path("../Dataset")
+        self.si_output_path = Path("../Spatial_Imagination/output")
+        self.si_dataset_path = Path("../Spatial_Imagination/Dataset")
+        
+        self.output_path = self.base_output_path
+        self.dataset_path = self.base_dataset_path
         self.old_output_path = Path("../../data/output")
         self.old_cache = {}
         self.scoreboard_cache = {}
@@ -83,6 +88,22 @@ class AnnotationReviewer:
         control_frame = ttk.Frame(main_frame, width=350)
         control_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 15))
         control_frame.pack_propagate(False)
+
+        # Initialize mode variable and controls
+        self.mode_var = tk.StringVar(value="Default")
+        
+        # Mode selection
+        ttk.Label(control_frame, text="Review Mode:", font=default_font).pack(pady=8)
+        mode_frame = ttk.Frame(control_frame)
+        mode_frame.pack(pady=8)
+        
+        rb_def = ttk.Radiobutton(mode_frame, text="Default", variable=self.mode_var, 
+                                value="Default", command=self.on_mode_changed)
+        rb_def.pack(side=tk.LEFT, padx=10)
+        
+        rb_si = ttk.Radiobutton(mode_frame, text="Spatial Imag.", variable=self.mode_var, 
+                               value="Spatial_Imagination", command=self.on_mode_changed)
+        rb_si.pack(side=tk.LEFT, padx=10)
         
         # Event selection
         ttk.Label(control_frame, text="Select Event:", font=default_font).pack(pady=8)
@@ -285,6 +306,25 @@ class AnnotationReviewer:
         if selected:
             self.current_sport, self.current_event = selected.split('/')
             self.load_ids()
+
+    def on_mode_changed(self):
+        """切换审核模式"""
+        mode = self.mode_var.get()
+        if mode == "Default":
+            self.output_path = self.base_output_path
+            self.dataset_path = self.base_dataset_path
+        elif mode == "Spatial_Imagination":
+            self.output_path = self.si_output_path
+            self.dataset_path = self.si_dataset_path
+            
+        # 清空当前选择
+        self.event_var.set('')
+        self.id_var.set('')
+        self.event_combo['values'] = []
+        self.id_combo['values'] = []
+        
+        # 重新加载事件列表
+        self.load_events()
             
     def load_ids(self):
         """加载当前事件下的ID列表"""

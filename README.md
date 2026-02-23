@@ -3,6 +3,7 @@
 面向视频 clips 与单帧 frames 的标注审核工具，统一展示窗口帧、bbox 与 MOT 追踪结果，并提供高效的审核、编辑与批量修正能力。
 
 ## 核心特性
+- **多模式审核支持**：支持 "Default" 和 "Spatial Imagination" 两种审核模式，适配不同任务的数据路径结构。
 - 支持 clips / frames 双形态数据，并可同时查看窗口帧、bbox、MOT 追踪。
 - 全键盘驱动的巡检、编辑、审核流，跨文件跳转前自动尝试保存。
 - 鼠标拖拽式 bbox 编辑，自动写入 `retrack=True` 并保留历史 Scoreboard 拟合工具。
@@ -11,7 +12,10 @@
 > ⚙️ 启动步骤集中在 `quickstart.md`，README 仅保留工作流与功能说明。
 
 ## 使用流程
-1. **载入数据**：在界面选择 sport/event → clips|frames → ID 后按 **L**；若手动修改 JSON 也需重新按 **L**。
+1. **模式与数据载入**：
+    - **Review Mode**：在左侧面板选择 "Default"（标准模式）或 "Spatial Imag."（空间想象力任务模式）。
+    - **选择数据**：选择 sport/event → data type (clips/frames) → ID。
+    - **加载**：点击 "Load Data" 或按 **L** 键载入；若手动修改 JSON 也需重新按 **L**。
 2. **浏览验证**：clips 使用 **Space/B/W/R** 控制播放、窗口帧与 bbox 跳转；frames 直接对静态图巡检。
 3. **编辑修正**：按 **E** 进入/轮换 bbox 编辑目标，鼠标拖拽即可写入；必要时用 **X**、**C** 或 `Delete` 处理批量情况。
 4. **审核与保存**：确认无误后按 **M** 标记 reviewed，再按 **S** 将内存改动落盘。
@@ -67,8 +71,23 @@
 - 进度条拖动可与 `B/W` 组合使用：先精准定位再触发快捷键做系统巡检。
 
 ## 数据路径与格式
-- 媒体：`../Dataset/{sport}/{event}/clips|frames/{id}.{mp4|jpg}`。
-- 标注：`../output/{sport}/{event}/clips|frames/{id}.json`，旧版本可参考 `../../data/output/...`。
+工具支持两种模式，数据路径有所不同，请确保目录结构符合以下规范：
+
+### 1. Default Mode (标准模式)
+适用于常规 OlympicVMBench 任务。
+- **Dataset (视频/图片)**: `../Dataset/{sport}/{event}/clips|frames/{id}.{mp4|jpg}`
+- **Output (标注 JSON)**: `../output/{sport}/{event}/clips|frames/{id}.json`
+- **Reference (旧数据)**: `../../data/output/...`
+
+### 2. Spatial Imagination Mode (任务 L2: Spatial_Imagination)
+适用于空间想象力相关任务，数据存储在独立的 `Spatial_Imagination` 文件夹中。
+- **Dataset (视频)**: `../Spatial_Imagination/Dataset/{sport}/{event}/clips/{id}.mp4`
+- **Output (标注 JSON)**: `../Spatial_Imagination/output/{sport}/{event}/clips/{id}.json`
+- *注意：此模式下的 Dataset 和 output 文件夹位于 `Spatial_Imagination` 子目录下。*
+
+### 通用说明
+- **工作目录**: 运行 `main.py` 时，当前工作目录必须是 `CheckData/`。
+- **目录层级**: `Dataset`, `output`, `Spatial_Imagination` 文件夹应与 `CheckData` 文件夹同级。
 
 **Clips JSON 示例**
 ```json
