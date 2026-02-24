@@ -21,10 +21,13 @@
 4. **审核与保存**：确认无误后按 **Cmd/Ctrl+B** 或将当前标注标记为已审核，再点击 **Save (S)** 写回 JSON。
 5. **切换对象**：**← / →** 在同一 JSON 内切换 annotation；**Cmd/Ctrl+← / →** 在不同 JSON 文件间切换；跨文件跳转前会尝试保存当前修改。
 
-## 快捷键一览（仅保留以下 5 个）
+## 快捷键一览
+
 - **macOS** 使用 **Cmd**，**Windows / Linux** 使用 **Ctrl**。
+
 | 按键 | 功能 |
-|------|------|
+| --- | --- |
+| `Space` | clips 模式下播放/暂停视频 |
 | `Cmd/Ctrl+B` | 将当前标注的 `reviewed` 设为 `true`（标记已审核） |
 | `←` | 同一 JSON 内：上一条 annotation |
 | `→` | 同一 JSON 内：下一条 annotation |
