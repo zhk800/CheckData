@@ -156,6 +156,13 @@ class AnnotationReviewer:
                               relief='raised', bd=3, height=2, width=14)
         reload_btn.pack(pady=5)
         
+        # Source question/query (Dataset upstream) display
+        source_lf = ttk.LabelFrame(control_frame, text="Source question / query (Dataset)")
+        source_lf.pack(fill=tk.X, pady=(15, 5))
+        self.source_question_text = tk.Text(source_lf, height=6, wrap=tk.WORD,
+                                             font=('Arial', 11), relief='sunken', bd=2, state='disabled')
+        self.source_question_text.pack(fill=tk.X, padx=4, pady=4)
+        
         # Annotation info display
         ttk.Label(control_frame, text="Current Annotation:", font=('Arial', 14, 'bold')).pack(pady=(25, 8))
         self.annotation_text = tk.Text(control_frame, height=12, wrap=tk.WORD, 
@@ -180,7 +187,7 @@ class AnnotationReviewer:
         # Review status
         review_frame = ttk.Frame(control_frame)
         review_frame.pack(pady=15)
-        review_btn = tk.Button(review_frame, text="✓ Mark Reviewed (M)", command=self.mark_reviewed,
+        review_btn = tk.Button(review_frame, text="✓ Mark Reviewed (M / Cmd+B)", command=self.mark_reviewed,
                               font=button_font, bg='#FF9800', fg='white', 
                               relief='raised', bd=2, height=2, width=18)
         review_btn.pack(side=tk.LEFT, padx=5)
@@ -230,38 +237,16 @@ class AnnotationReviewer:
         replay_btn.pack(side=tk.LEFT, padx=8)
         
         # Keyboard shortcuts hint
-        hint_label = tk.Label(controls_frame, text="💡 Space: Play/Pause | B: bbox | W: window | E: Edit bbox | X: Swap labels | C: Copy prev scoreboard | Shift+N/P: Next file | Del: Delete annotation", 
+        hint_label = tk.Label(controls_frame, text="💡 ←/→: 同文件标注 | Cmd+←/→: 切换文件 | Cmd+B: 标记已审核", 
                               font=('Arial', 11), fg='#666666')
         hint_label.pack(side=tk.LEFT, padx=20)
         
-        # 绑定键盘事件
-        self.root.bind('<KeyPress-space>', self.on_space_key)  # 空格键播放/暂停
-        self.root.bind('<KeyPress-b>', self.on_b_key)  # B键跳转bbox帧
-        self.root.bind('<KeyPress-B>', self.on_b_key)
-        self.root.bind('<KeyPress-w>', self.on_w_key)
-        self.root.bind('<KeyPress-W>', self.on_w_key)  # 大写W也支持
-        self.root.bind('<KeyPress-u>', self.on_u_key)  # U键跳到下一个未审核文件（Shift+U 过滤特定任务）
-        self.root.bind('<KeyPress-U>', self.on_u_key)
-        self.root.bind('<KeyPress-e>', self.on_e_key)  # E键切换bbox编辑模式
-        self.root.bind('<KeyPress-E>', self.on_e_key)
-        self.root.bind('<KeyPress-l>', self.on_l_key)  # L键加载数据
-        self.root.bind('<KeyPress-L>', self.on_l_key)
-        self.root.bind('<KeyPress-p>', self.on_p_key)  # P键上一个标注
-        self.root.bind('<KeyPress-P>', self.on_p_key)
-        self.root.bind('<KeyPress-n>', self.on_n_key)  # N键下一个标注
-        self.root.bind('<KeyPress-N>', self.on_n_key)
-        self.root.bind('<KeyPress-m>', self.on_m_key)  # M键标记已审核
-        self.root.bind('<KeyPress-M>', self.on_m_key)
-        self.root.bind('<KeyPress-c>', self.on_copy_prev_scoreboard_key)
-        self.root.bind('<KeyPress-C>', self.on_copy_prev_scoreboard_key)
-        self.root.bind('<KeyPress-x>', self.on_swap_bbox_labels)
-        self.root.bind('<KeyPress-X>', self.on_swap_bbox_labels)
-        self.root.bind('<KeyPress-r>', self.on_r_key)  # R键重播视频
-        self.root.bind('<KeyPress-R>', self.on_r_key)
-        self.root.bind('<KeyPress-s>', self.on_s_key)  # S键保存
-        self.root.bind('<KeyPress-S>', self.on_s_key)
-        self.root.bind('<Return>', self.on_enter_key)  # Enter键播放/暂停
-        self.root.bind('<Delete>', self.on_delete_key)  # Delete键删除当前标注并重新加载
+        # 绑定键盘事件（仅保留：Cmd+B 标记已审核，←/→ 同文件标注切换，Cmd+←/→ 文件切换）
+        self.root.bind('<Command-b>', lambda e: self.mark_reviewed())
+        self.root.bind('<Left>', lambda e: self.prev_annotation())
+        self.root.bind('<Right>', lambda e: self.next_annotation())
+        self.root.bind('<Command-Left>', lambda e: self.navigate_adjacent_file(-1))
+        self.root.bind('<Command-Right>', lambda e: self.navigate_adjacent_file(1))
         self.root.focus_set()
         
         # 进度条
@@ -684,7 +669,51 @@ class AnnotationReviewer:
         except Exception as exc:
             print(f"Read clip metadata failed: {exc}")
             return None
-        
+
+    def get_source_question_text(self):
+        """从 Dataset 上游 JSON 读取 source_annotation.annotation 的 question 与 query"""
+        if self.current_type != "clips" or not all([self.current_sport, self.current_event, self.current_id]):
+            return "N/A"
+        meta_path = (
+            self.dataset_path
+            / self.current_sport
+            / self.current_event
+            / "clips"
+            / f"{self.current_id}.json"
+        )
+        if not meta_path.exists():
+            return "N/A"
+        try:
+            with open(meta_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            src = data.get("source_annotation") or {}
+            ann = src.get("annotation") or {}
+            question = ann.get("question")
+            query = ann.get("query")
+            parts = []
+            if question is not None:
+                q = str(question).strip()
+                if q:
+                    parts.append("Question:\n" + q)
+            if query is not None:
+                qr = str(query).strip()
+                if qr:
+                    parts.append("Query:\n" + qr)
+            if not parts:
+                return "N/A"
+            return "\n\n".join(parts)
+        except Exception as exc:
+            print(f"Read source_annotation question/query failed: {exc}")
+            return "N/A"
+
+    def update_source_question_display(self):
+        """刷新上游 question 小窗口内容"""
+        text = self.get_source_question_text()
+        self.source_question_text.config(state='normal')
+        self.source_question_text.delete(1.0, tk.END)
+        self.source_question_text.insert(1.0, text)
+        self.source_question_text.config(state='disabled')
+
     def load_frame(self):
         """加载单帧图片"""
         frame_path = None
@@ -783,6 +812,7 @@ class AnnotationReviewer:
         if not self.current_annotations:
             self.annotation_text.delete(1.0, tk.END)
             self.annotation_text.insert(1.0, "No annotation data")
+            self.update_source_question_display()
             return
             
         if self.current_annotation_index >= len(self.current_annotations):
@@ -846,6 +876,7 @@ class AnnotationReviewer:
                 self.update_video_display()
             else:
                 self.display_frame_with_annotations()
+        self.update_source_question_display()
 
     def toggle_old_transfer(self):
         """切换是否应用旧数据中的annotation内容"""

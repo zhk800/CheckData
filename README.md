@@ -1,74 +1,41 @@
 # AI标注审查系统
 
-面向视频 clips 与单帧 frames 的标注审核工具，统一展示窗口帧、bbox 与 MOT 追踪结果，并提供高效的审核、编辑与批量修正能力。
+面向视频 clips 与单帧 frames 的标注审核工具，统一展示窗口帧、bbox 与 MOT 追踪结果，并提供审核、编辑与批量修正能力。
 
 ## 核心特性
 - **多模式审核支持**：支持 "Default" 和 "Spatial Imagination" 两种审核模式，适配不同任务的数据路径结构。
+- **上游 Question/Query 小窗**：在 Spatial Imagination 等模式下，左侧会显示对应 Dataset 文件中 `source_annotation.annotation` 的 `question` 与 `query` 内容，便于对照审核。
 - 支持 clips / frames 双形态数据，并可同时查看窗口帧、bbox、MOT 追踪。
-- 全键盘驱动的巡检、编辑、审核流，跨文件跳转前自动尝试保存。
-- 鼠标拖拽式 bbox 编辑，自动写入 `retrack=True` 并保留历史 Scoreboard 拟合工具。
-- VS Code 集成：左侧文本区域双击可直接打开对应 JSON，再按 **L** 重新载入。
+- 鼠标拖拽式 bbox 编辑，自动写入 `retrack=True`；保留 Scoreboard 复制、交换 label 等按钮。
+- VS Code 集成：左侧「Current Annotation」区域双击可打开对应 JSON；加载/保存/播放等通过左侧与底部按钮完成。
 
 > ⚙️ 启动步骤集中在 `quickstart.md`，README 仅保留工作流与功能说明。
 
 ## 使用流程
 1. **模式与数据载入**：
-    - **Review Mode**：在左侧面板选择 "Default"（标准模式）或 "Spatial Imag."（空间想象力任务模式）。
+    - **Review Mode**：在左侧选择 "Default" 或 "Spatial Imag."。
     - **选择数据**：选择 sport/event → data type (clips/frames) → ID。
-    - **加载**：点击 "Load Data" 或按 **L** 键载入；若手动修改 JSON 也需重新按 **L**。
-2. **浏览验证**：clips 使用 **Space/B/W/R** 控制播放、窗口帧与 bbox 跳转；frames 直接对静态图巡检。
-3. **编辑修正**：按 **E** 进入/轮换 bbox 编辑目标，鼠标拖拽即可写入；必要时用 **X**、**C** 或 `Delete` 处理批量情况。
-4. **审核与保存**：确认无误后按 **M** 标记 reviewed，再按 **S** 将内存改动落盘。
-5. **切换对象**：同文件用 **N/P**，跨文件用 `Shift+N/P` 或 **U** / `Shift+U`，所有跳转都会先尝试保存当前修改。
+    - **加载**：点击 **Load Data (L)** 载入；若在外部修改了 JSON，点击 **Reload** 重新载入。
+2. **浏览验证**：clips 通过底部 **Play/Pause**、**Replay** 与进度条控制播放；frames 为静态图。
+3. **编辑修正**：通过左侧与底部按钮进行 bbox 编辑、Scoreboard 复制、交换 label、删除标注等（无键盘快捷键，仅按钮）。
+4. **审核与保存**：确认无误后按 **Cmd+B** 或将当前标注标记为已审核，再点击 **Save (S)** 写回 JSON。
+5. **切换对象**：**← / →** 在同一 JSON 内切换 annotation；**Cmd+← / Cmd+→** 在不同 JSON 文件间切换；跨文件跳转前会尝试保存当前修改。
 
-## 快捷键一览
-| 按键 | 作用域 | 功能 |
-|------|--------|------|
-| `Space` / `Enter` | clips | 播放/暂停。 |
-| `B` | clips | 依次跳到含 bbox 的帧并暂停；再次按键恢复播放并重置 W。 |
-| `W` | clips | 按 Q→A 顺序浏览窗口帧，结束后恢复播放并重置 B。 |
-| `R` | clips | 从 `Q_window_frame` 起始帧重新播放当前片段。 |
-| `L` | 全局 | 根据当前下拉框选择重新载入 JSON。 |
-| `P` / `Shift+P` | 全局 | 上一条标注 / 上一个文件（循环，跳转前尝试保存）。 |
-| `N` / `Shift+N` | 全局 | 下一条标注 / 下一个文件。 |
-| `U` / `Shift+U` | 全局 | 下一份仍含未审核标注的文件；`Shift` 仅筛 `Spatial_Temporal_Grounding`、`Continuous_Actions_Caption`。 |
-| `M` | 全局 | 将当前标注标记为已审核。 |
-| `S` | 全局 | 将所有内存改动写回 JSON。 |
-| `E` | 编辑 | 进入 bbox 编辑；重复按可在 `first_bounding_box` 与各 `bounding_box[i]` 间轮换，遍历完自动退出。 |
-| 鼠标左键拖拽 | 编辑 | 在编辑模式下绘制/修改 bbox，松开即写入并自动设置 `retrack=True`。 |
-| `C` | ScoreboardSingle | 复制同运动前序文件的 Scoreboard bbox，并按 IOU 匹配到当前文件。 |
-| `X` | bbox | 交换当前标注前两个 `bounding_box` 的 `label` 字段。 |
-| `Delete` | 全局 | 删除当前 annotation，静默保存并重新载入文件。 |
+## 快捷键一览（仅保留以下 5 个）
+| 按键 | 功能 |
+|------|------|
+| `Cmd+B` | 将当前标注的 `reviewed` 设为 `true`（标记已审核） |
+| `←` | 同一 JSON 内：上一条 annotation |
+| `→` | 同一 JSON 内：下一条 annotation |
+| `Cmd+←` | 上一个 JSON 文件（跳转前尝试保存） |
+| `Cmd+→` | 下一个 JSON 文件（跳转前尝试保存） |
 
-## 操作分组
+其余操作（加载、保存、播放、重播、标记已审核、上一/下一标注、上一/下一文件、下一未审核文件、复制 Scoreboard、交换 label、删除标注等）均通过界面按钮完成，无键盘快捷键。
 
-### Clips 播放 / 帧定位
-- `Space` / `Enter`：播放/暂停，进度条拖拽会自动暂停，方便逐帧查看。
-- `B`：逐个跳到含 bbox 的帧并暂停；再次按键恢复播放并清空 W 状态。
-- `W`：按 Q→A 顺序跳窗口帧，遍历完自动恢复播放并清空 B 状态。
-- `R`：从 `Q_window_frame` 起始帧重新播放当前片段。
-
-### 标注 / 文件导航
-- `L`：重新载入当前所选 JSON。
-- `P` / `Shift+P`、`N` / `Shift+N`：在标注与文件间切换，跳转前自动尝试保存。
-- `U` / `Shift+U`：按是否已审核筛选下一份文件，`Shift` 仅检查指定任务。
-- `Delete`：删除当前 annotation 并立即重新载入文件以保持索引。
-
-### 审核与数据维护
-- `M`：标记当前 annotation 已审核。
-- `S`：显式保存所有改动（唯一真正写回 JSON 的动作）。
-- `C`：从历史文件复制 ScoreboardSingle bbox，并按 IOU 自动匹配。
-
-### bbox 编辑
-- `E`：进入/轮换编辑目标，完成一圈后自动退出并恢复光标。
-- 鼠标拖拽：写入或替换 bbox，并自动添加 `retrack=True`。
-- `X`：交换前两个 bbox 的 label，方便快速修正描述顺序。
-
-## 工作技巧
-- 左侧文本区域双击可在 VS Code 打开对应 JSON，编辑后按 **L** 回读最新结果。
-- `B` 与 `W` 互斥：触发其一会清空另一方的暂停与索引，避免状态乱套。
-- 所有跨文件跳转（`Shift+N/P`、`U` 系列）都会尝试保存当前更改；若尚未按 **S** 也不会丢失。
-- 进度条拖动可与 `B/W` 组合使用：先精准定位再触发快捷键做系统巡检。
+## 界面说明
+- **Source question / query (Dataset)**：显示当前 clip 对应上游 JSON（`Dataset/{sport}/{event}/clips/{id}.json`）中的 `source_annotation.annotation.question` 与 `query`，无则显示 N/A。
+- **Current Annotation**：当前选中 annotation 的详情；双击该区域可在 VS Code 中打开对应 JSON，编辑后点击 Reload 重新载入。
+- 底部提示条：`←/→` 同文件标注，`Cmd+←/→` 切换文件，`Cmd+B` 标记已审核。
 
 ## 数据路径与格式
 工具支持两种模式，数据路径有所不同，请确保目录结构符合以下规范：
@@ -125,9 +92,9 @@
 }
 ```
 
-若需安装/运行指引，请参阅 `quickstart.md`；本文件保持为操作指南与数据说明的唯一入口。
+若需安装/运行指引，请参阅 `quickstart.md`。
 
-### 窗口标记:
+### 窗口标记
 - **绿色 "Q BEGIN/END"**: Q窗口开始/结束帧
 - **蓝色 "A1/A2/A3... BEGIN/END"**: A窗口开始/结束帧  
 - **紫色 "A1/A2... POINT"**: A窗口关键点帧
@@ -145,7 +112,7 @@
 3. **MOT格式**: MOT文件格式应符合MOTChallenge标准
 4. **自动保存**: bbox编辑和审核状态会自动保存到原始JSON文件中
 5. **编辑模式**: 在bbox编辑模式下视频会自动暂停，避免编辑干扰
-6. **外部编辑**: 使用VSCode等编辑器修改JSON文件后，按F5重新加载
+6. **外部编辑**: 使用 VSCode 等编辑器修改 JSON 后，点击左侧 **Reload** 重新加载
 7. **坐标精度**: bbox坐标会自动转换为视频原始分辨率坐标
 
 ## 技术要求
@@ -165,6 +132,6 @@ pip install opencv-python pillow tkinter
 
 1. **视频无法播放**: 检查视频文件路径和格式
 2. **JSON文件报错**: 验证JSON格式是否正确
-3. **键盘快捷键无响应**: 确保窗口获得焦点
-4. **bbox编辑无效果**: 检查是否正确进入编辑模式(E键)
-5. **外部编辑不生效**: 使用F5重新加载文件
+3. **键盘快捷键无响应**: 确保窗口获得焦点（仅支持 Cmd+B、←、→、Cmd+←、Cmd+→）
+4. **bbox 编辑无效果**: 通过左侧/底部对应按钮进入编辑与保存
+5. **外部编辑不生效**: 点击 **Reload** 重新加载文件
