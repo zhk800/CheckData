@@ -5,6 +5,7 @@ AI标注审查程序
 """
 
 import os
+import sys
 import json
 import copy
 import cv2
@@ -27,8 +28,8 @@ class AnnotationReviewer:
         self.si_output_path = Path("../Spatial_Imagination/output")
         self.si_dataset_path = Path("../Spatial_Imagination/Dataset")
         
-        self.output_path = self.base_output_path
-        self.dataset_path = self.base_dataset_path
+        self.output_path = self.si_output_path
+        self.dataset_path = self.si_dataset_path
         self.old_output_path = Path("../../data/output")
         self.old_cache = {}
         self.scoreboard_cache = {}
@@ -76,6 +77,9 @@ class AnnotationReviewer:
         
     def setup_ui(self):
         """设置用户界面"""
+        # macOS 用 Command，Windows/Linux 用 Control
+        self.cmd_mod = 'Command' if sys.platform == 'darwin' else 'Control'
+        self.cmd_label = 'Cmd' if sys.platform == 'darwin' else 'Ctrl'
         # 设置默认字体
         default_font = ('Arial', 12)
         button_font = ('Arial', 14, 'bold')
@@ -89,22 +93,6 @@ class AnnotationReviewer:
         control_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 15))
         control_frame.pack_propagate(False)
 
-        # Initialize mode variable and controls
-        self.mode_var = tk.StringVar(value="Default")
-        
-        # Mode selection
-        ttk.Label(control_frame, text="Review Mode:", font=default_font).pack(pady=8)
-        mode_frame = ttk.Frame(control_frame)
-        mode_frame.pack(pady=8)
-        
-        rb_def = ttk.Radiobutton(mode_frame, text="Default", variable=self.mode_var, 
-                                value="Default", command=self.on_mode_changed)
-        rb_def.pack(side=tk.LEFT, padx=10)
-        
-        rb_si = ttk.Radiobutton(mode_frame, text="Spatial Imag.", variable=self.mode_var, 
-                               value="Spatial_Imagination", command=self.on_mode_changed)
-        rb_si.pack(side=tk.LEFT, padx=10)
-        
         # Event selection
         ttk.Label(control_frame, text="Select Event:", font=default_font).pack(pady=8)
         self.event_var = tk.StringVar()
@@ -136,25 +124,19 @@ class AnnotationReviewer:
         ).pack(side=tk.LEFT, padx=10)
         self.type_var.set("clips")
         
-        # ID selection
-        ttk.Label(control_frame, text="Select ID:", font=default_font).pack(pady=8)
+        # ID selection + Load button (compact row)
+        id_row = ttk.Frame(control_frame)
+        id_row.pack(fill=tk.X, pady=8)
+        ttk.Label(id_row, text="Select ID:", font=default_font).pack(side=tk.LEFT, padx=(0, 6))
         self.id_var = tk.StringVar()
-        self.id_combo = ttk.Combobox(control_frame, textvariable=self.id_var, 
-                                    state="readonly", width=35, font=default_font)
-        self.id_combo.pack(pady=8)
+        self.id_combo = ttk.Combobox(id_row, textvariable=self.id_var, 
+                                    state="readonly", width=28, font=default_font)
+        self.id_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
         self.id_combo.bind("<<ComboboxSelected>>", self.on_id_selected)
-        
-        # Load button
-        load_btn = tk.Button(control_frame, text="Load Data (L)", command=self.load_data,
-                            font=button_font, bg='#4CAF50', fg='white', 
-                            relief='raised', bd=3, height=2, width=14)
-        load_btn.pack(pady=15)
-        
-        # Reload button
-        reload_btn = tk.Button(control_frame, text="🔄 Reload", command=self.on_f5,
-                              font=button_font, bg='#2196F3', fg='white', 
-                              relief='raised', bd=3, height=2, width=14)
-        reload_btn.pack(pady=5)
+        load_btn = tk.Button(id_row, text="Load", command=self.load_data,
+                            font=('Arial', 11), bg='#4CAF50', fg='white', 
+                            relief='raised', bd=2, height=1, width=8)
+        load_btn.pack(side=tk.LEFT)
         
         # Source question/query (Dataset upstream) display
         source_lf = ttk.LabelFrame(control_frame, text="Source question / query (Dataset)")
@@ -164,8 +146,8 @@ class AnnotationReviewer:
         self.source_question_text.pack(fill=tk.X, padx=4, pady=4)
         
         # Annotation info display
-        ttk.Label(control_frame, text="Current Annotation:", font=('Arial', 14, 'bold')).pack(pady=(25, 8))
-        self.annotation_text = tk.Text(control_frame, height=12, wrap=tk.WORD, 
+        ttk.Label(control_frame, text="Current Annotation:", font=('Arial', 14, 'bold')).pack(pady=(15, 8))
+        self.annotation_text = tk.Text(control_frame, height=22, wrap=tk.WORD, 
                                      font=('Arial', 14), relief='sunken', bd=2)
         self.annotation_text.pack(fill=tk.BOTH, expand=True, pady=8)
         
@@ -187,7 +169,7 @@ class AnnotationReviewer:
         # Review status
         review_frame = ttk.Frame(control_frame)
         review_frame.pack(pady=15)
-        review_btn = tk.Button(review_frame, text="✓ Mark Reviewed (M / Cmd+B)", command=self.mark_reviewed,
+        review_btn = tk.Button(review_frame, text=f"✓ Mark Reviewed ({self.cmd_label}+B)", command=self.mark_reviewed,
                               font=button_font, bg='#FF9800', fg='white', 
                               relief='raised', bd=2, height=2, width=18)
         review_btn.pack(side=tk.LEFT, padx=5)
@@ -237,16 +219,17 @@ class AnnotationReviewer:
         replay_btn.pack(side=tk.LEFT, padx=8)
         
         # Keyboard shortcuts hint
-        hint_label = tk.Label(controls_frame, text="💡 ←/→: 同文件标注 | Cmd+←/→: 切换文件 | Cmd+B: 标记已审核", 
+        hint_label = tk.Label(controls_frame, text=f"💡 ←/→: 同文件标注 | {self.cmd_label}+←/→: 切换文件 | {self.cmd_label}+B: 标记已审核", 
                               font=('Arial', 11), fg='#666666')
         hint_label.pack(side=tk.LEFT, padx=20)
         
-        # 绑定键盘事件（仅保留：Cmd+B 标记已审核，←/→ 同文件标注切换，Cmd+←/→ 文件切换）
-        self.root.bind('<Command-b>', lambda e: self.mark_reviewed())
+        # 绑定键盘事件
+        self.root.bind('<KeyPress-space>', self.on_space_key)  # 空格 播放/暂停
+        self.root.bind(f'<{self.cmd_mod}-b>', lambda e: self.mark_reviewed())
         self.root.bind('<Left>', lambda e: self.prev_annotation())
         self.root.bind('<Right>', lambda e: self.next_annotation())
-        self.root.bind('<Command-Left>', lambda e: self.navigate_adjacent_file(-1))
-        self.root.bind('<Command-Right>', lambda e: self.navigate_adjacent_file(1))
+        self.root.bind(f'<{self.cmd_mod}-Left>', lambda e: self.navigate_adjacent_file(-1))
+        self.root.bind(f'<{self.cmd_mod}-Right>', lambda e: self.navigate_adjacent_file(1))
         self.root.focus_set()
         
         # 进度条
@@ -292,25 +275,6 @@ class AnnotationReviewer:
             self.current_sport, self.current_event = selected.split('/')
             self.load_ids()
 
-    def on_mode_changed(self):
-        """切换审核模式"""
-        mode = self.mode_var.get()
-        if mode == "Default":
-            self.output_path = self.base_output_path
-            self.dataset_path = self.base_dataset_path
-        elif mode == "Spatial_Imagination":
-            self.output_path = self.si_output_path
-            self.dataset_path = self.si_dataset_path
-            
-        # 清空当前选择
-        self.event_var.set('')
-        self.id_var.set('')
-        self.event_combo['values'] = []
-        self.id_combo['values'] = []
-        
-        # 重新加载事件列表
-        self.load_events()
-            
     def load_ids(self):
         """加载当前事件下的ID列表"""
         if not self.current_sport or not self.current_event:
@@ -834,7 +798,8 @@ class AnnotationReviewer:
         info_text = f"Annotation {self.current_annotation_index + 1}/{len(self.current_annotations)}\n\n"
         info_text += f"ID: {annotation.get('annotation_id', 'N/A')}\n"
         info_text += f"Task Type: {annotation.get('task_L1', 'N/A')}/{annotation.get('task_L2', 'N/A')}\n"
-        info_text += f"Reviewed: {'Yes' if annotation.get('reviewed', False) else 'No'}\n"
+        reviewed = annotation.get('reviewed', False)
+        info_text += f"Reviewed: {'Yes ✅' if reviewed else 'No ❌'}\n"
         info_text += f"exist_old: {'true' if self.current_old_annotation else 'false'}\n"
         if self.bbox_edit_mode and self.active_edit_target:
             info_text += f"Editing Target: {self.describe_edit_target(self.active_edit_target)}\n"

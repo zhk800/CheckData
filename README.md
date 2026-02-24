@@ -18,24 +18,25 @@
     - **加载**：点击 **Load Data (L)** 载入；若在外部修改了 JSON，点击 **Reload** 重新载入。
 2. **浏览验证**：clips 通过底部 **Play/Pause**、**Replay** 与进度条控制播放；frames 为静态图。
 3. **编辑修正**：通过左侧与底部按钮进行 bbox 编辑、Scoreboard 复制、交换 label、删除标注等（无键盘快捷键，仅按钮）。
-4. **审核与保存**：确认无误后按 **Cmd+B** 或将当前标注标记为已审核，再点击 **Save (S)** 写回 JSON。
-5. **切换对象**：**← / →** 在同一 JSON 内切换 annotation；**Cmd+← / Cmd+→** 在不同 JSON 文件间切换；跨文件跳转前会尝试保存当前修改。
+4. **审核与保存**：确认无误后按 **Cmd/Ctrl+B** 或将当前标注标记为已审核，再点击 **Save (S)** 写回 JSON。
+5. **切换对象**：**← / →** 在同一 JSON 内切换 annotation；**Cmd/Ctrl+← / →** 在不同 JSON 文件间切换；跨文件跳转前会尝试保存当前修改。
 
 ## 快捷键一览（仅保留以下 5 个）
+- **macOS** 使用 **Cmd**，**Windows / Linux** 使用 **Ctrl**。
 | 按键 | 功能 |
 |------|------|
-| `Cmd+B` | 将当前标注的 `reviewed` 设为 `true`（标记已审核） |
+| `Cmd/Ctrl+B` | 将当前标注的 `reviewed` 设为 `true`（标记已审核） |
 | `←` | 同一 JSON 内：上一条 annotation |
 | `→` | 同一 JSON 内：下一条 annotation |
-| `Cmd+←` | 上一个 JSON 文件（跳转前尝试保存） |
-| `Cmd+→` | 下一个 JSON 文件（跳转前尝试保存） |
+| `Cmd/Ctrl+←` | 上一个 JSON 文件（跳转前尝试保存） |
+| `Cmd/Ctrl+→` | 下一个 JSON 文件（跳转前尝试保存） |
 
 其余操作（加载、保存、播放、重播、标记已审核、上一/下一标注、上一/下一文件、下一未审核文件、复制 Scoreboard、交换 label、删除标注等）均通过界面按钮完成，无键盘快捷键。
 
 ## 界面说明
 - **Source question / query (Dataset)**：显示当前 clip 对应上游 JSON（`Dataset/{sport}/{event}/clips/{id}.json`）中的 `source_annotation.annotation.question` 与 `query`，无则显示 N/A。
 - **Current Annotation**：当前选中 annotation 的详情；双击该区域可在 VS Code 中打开对应 JSON，编辑后点击 Reload 重新载入。
-- 底部提示条：`←/→` 同文件标注，`Cmd+←/→` 切换文件，`Cmd+B` 标记已审核。
+- 底部提示条：`←/→` 同文件标注，`Cmd/Ctrl+←/→` 切换文件，`Cmd/Ctrl+B` 标记已审核（macOS 为 Cmd，Windows/Linux 为 Ctrl）。
 
 ## 数据路径与格式
 工具支持两种模式，数据路径有所不同，请确保目录结构符合以下规范：
@@ -132,6 +133,6 @@ pip install opencv-python pillow tkinter
 
 1. **视频无法播放**: 检查视频文件路径和格式
 2. **JSON文件报错**: 验证JSON格式是否正确
-3. **键盘快捷键无响应**: 确保窗口获得焦点（仅支持 Cmd+B、←、→、Cmd+←、Cmd+→）
+3. **键盘快捷键无响应**: 确保窗口获得焦点（仅支持 Cmd/Ctrl+B、←、→、Cmd/Ctrl+←、Cmd/Ctrl+→）
 4. **bbox 编辑无效果**: 通过左侧/底部对应按钮进入编辑与保存
 5. **外部编辑不生效**: 点击 **Reload** 重新加载文件
