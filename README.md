@@ -31,6 +31,7 @@
 | `Cmd/Ctrl+B` | 将当前标注的 `reviewed` 设为 `true`（标记已审核） |
 | `←` | 同一 JSON 内：上一条 annotation |
 | `→` | 同一 JSON 内：下一条 annotation |
+| `S` | 保存所做的修改 |
 | `Cmd/Ctrl+←` | 上一个 JSON 文件（跳转前尝试保存） |
 | `Cmd/Ctrl+→` | 下一个 JSON 文件（跳转前尝试保存） |
 

@@ -225,6 +225,8 @@ class AnnotationReviewer:
         
         # 绑定键盘事件
         self.root.bind('<KeyPress-space>', self.on_space_key)  # 空格 播放/暂停
+        self.root.bind('<KeyPress-s>', self.on_s_key)  # S键保存
+        self.root.bind('<KeyPress-S>', self.on_s_key)
         self.root.bind(f'<{self.cmd_mod}-b>', lambda e: self.mark_reviewed())
         self.root.bind('<Left>', lambda e: self.prev_annotation())
         self.root.bind('<Right>', lambda e: self.next_annotation())
@@ -1280,7 +1282,6 @@ class AnnotationReviewer:
         if self.current_annotations and self.current_annotation_index < len(self.current_annotations):
             self.current_annotations[self.current_annotation_index]['reviewed'] = True
             self.display_current_annotation()
-            messagebox.showinfo("Info", "Marked as reviewed")
             
     def save_data(self, silent=False):
         """保存标注数据"""
