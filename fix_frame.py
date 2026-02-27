@@ -24,11 +24,11 @@ class AnnotationFixer:
         初始化标注修复器
         
         Args:
-            api_key: Gemini API密钥，如果为None则从环境变量GEMINI_API_KEY读取
+            api_key: Gemini API密钥，如果为None则从环境变量GOOGLE_API_KEY读取
             batch_size: 每批处理的文件数量（默认100）
         """
         if api_key:
-            os.environ['GEMINI_API_KEY'] = api_key
+            os.environ['GOOGLE_API_KEY'] = api_key
         
         self.client = genai.Client()
         self.prompt_template = self._load_prompt()
@@ -337,8 +337,8 @@ def main():
     args = parser.parse_args()
     
     # 检查API密钥
-    if not args.api_key and not os.getenv('GEMINI_API_KEY'):
-        print("❌ 请先设置GEMINI_API_KEY环境变量或使用--api-key参数")
+    if not args.api_key and not os.getenv('GOOGLE_API_KEY'):
+        print("❌ 请先设置GOOGLE_API_KEY环境变量或使用--api-key参数")
         return
     
     # 确定输出目录
