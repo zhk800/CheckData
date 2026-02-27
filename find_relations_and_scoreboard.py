@@ -117,6 +117,7 @@ def main():
         sys.exit(1)
 
     TOTAL_PROCESSED_FILES = 0
+    FOUND_FILES = []
 
     for j in find_frames_jsons(base):
         
@@ -134,12 +135,19 @@ def main():
             
             # 如果发现了 Spatial，就只打印这个文件的路径
             if found_spatial_in_file:
-                print(f"[Objects_Spatial_Relationships] {j.resolve()}")
+                abs_path = str(j.resolve())
+                print(f"[Objects_Spatial_Relationships] {abs_path}")
+                FOUND_FILES.append(abs_path)
                 
             TOTAL_PROCESSED_FILES += 1
 
         except Exception:
             continue
+
+    # 将找到的文件列表保存到 json，供 GUI 使用
+    results_file = Path("spatial_results.json")
+    results_file.write_text(json.dumps(FOUND_FILES, indent=4, ensure_ascii=False), encoding='utf-8')
+    print(f"Results saved to {results_file.resolve()}")
 
     print("-" * 40)
     print(f"Total Found Objects_Spatial_Relationships (occurrences, KEPT): {TOTAL_FOUND_SPATIAL}")
