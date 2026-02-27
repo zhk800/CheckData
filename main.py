@@ -384,9 +384,6 @@ class AnnotationReviewer:
                 if isinstance(boxes, list) and idx is not None and idx < len(boxes):
                     boxes[idx] = new_bbox
             updated_label = label
-            # 只在clips模式下添加retrack标记
-            if self.current_type == 'clips':
-                annotation['retrack'] = True
         else:
             if 'first_bounding_box' in annotation:
                 annotation['first_bounding_box'] = new_bbox
@@ -401,9 +398,10 @@ class AnnotationReviewer:
             else:
                 annotation['first_bounding_box'] = new_bbox
                 updated_label = 'first_bounding_box'
-            # 只在clips模式下添加retrack标记
-            if self.current_type == 'clips':
-                annotation['retrack'] = True
+        
+        # 只在clips模式下添加retrack标记
+        if self.current_type == 'clips':
+            annotation['retrack'] = True
 
         self.bbox_start_point = None
         self.temp_bbox = None
@@ -1510,7 +1508,9 @@ class AnnotationReviewer:
                 continue
 
             ann['bounding_box'] = list(best_candidate['box'])
-            ann['retrack'] = True
+            # 只在clips模式下添加retrack标记
+            if self.current_type == 'clips':
+                ann['retrack'] = True
             replacements += 1
             best_iou = max(best_iou, candidate_iou)
 
@@ -1585,12 +1585,15 @@ class AnnotationReviewer:
             return
 
         first['label'], second['label'] = label_b, label_a
-        annotation['retrack'] = True
+        # 只在clips模式下添加retrack标记
+        if self.current_type == 'clips':
+            annotation['retrack'] = True
         self.display_current_annotation(refresh_media=False)
         self.refresh_visual()
+        retrack_msg = "Retrack flag added: true" if self.current_type == 'clips' else "Retrack flag not added (single frame mode)"
         messagebox.showinfo(
             "Swap Labels",
-            f"Swapped bbox labels: '{label_a}' ↔ '{label_b}'. Don't forget to save (S).",
+            f"Swapped bbox labels: '{label_a}' ↔ '{label_b}'.\n{retrack_msg}\nDon't forget to save (S).",
         )
     
     def find_bbox_frames(self):
