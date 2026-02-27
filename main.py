@@ -38,6 +38,7 @@ class AnnotationReviewer:
         self.current_id = None
         self.current_annotations = []
         self.current_annotation_index = 0
+        self.current_metadata = None
         
         # 视频播放相关
         self.video_cap = None
@@ -383,7 +384,9 @@ class AnnotationReviewer:
                 if isinstance(boxes, list) and idx is not None and idx < len(boxes):
                     boxes[idx] = new_bbox
             updated_label = label
-            annotation['retrack'] = True
+            # 只在clips模式下添加retrack标记
+            if self.current_type == 'clips':
+                annotation['retrack'] = True
         else:
             if 'first_bounding_box' in annotation:
                 annotation['first_bounding_box'] = new_bbox
@@ -398,16 +401,19 @@ class AnnotationReviewer:
             else:
                 annotation['first_bounding_box'] = new_bbox
                 updated_label = 'first_bounding_box'
-            annotation['retrack'] = True
+            # 只在clips模式下添加retrack标记
+            if self.current_type == 'clips':
+                annotation['retrack'] = True
 
         self.bbox_start_point = None
         self.temp_bbox = None
         self.refresh_visual()
 
         label_text = updated_label or 'bounding_box'
+        retrack_msg = "Retrack flag added: true" if self.current_type == 'clips' else "Retrack flag not added (single frame mode)"
         messagebox.showinfo(
             "Success",
-            f"Updated {label_text}!\nNew bbox: {new_bbox}\nRetrack flag added: true\n\nDon't forget to save (S key)",
+            f"Updated {label_text}!\nNew bbox: {new_bbox}\n{retrack_msg}\n\nDon't forget to save (S key)",
         )
 
     def on_e_key(self, event):
@@ -458,11 +464,9 @@ class AnnotationReviewer:
         label = self.describe_edit_target(self.editing_bbox)
         self.temp_bbox = None
         self.refresh_visual()
-
-        label_text = updated_label or 'bounding_box'
         messagebox.showinfo(
-            "Success",
-            f"Updated {label_text}!\nNew bbox: {new_bbox}\nRetrack flag added: true\n\nDon't forget to save (S key)",
+            "Edit Mode",
+            f"Switched to next target: {label}\n\nUse mouse drag to edit. Press E again to jump to the next target; after the last target, E will exit.",
         )
         
     def canvas_to_video_coords(self, canvas_x, canvas_y):
@@ -544,6 +548,17 @@ class AnnotationReviewer:
         json_path = (self.output_path / self.current_sport / 
                     self.current_event / self.current_type / f"{self.current_id}.json")
         self.current_json_path = json_path
+        self.current_metadata = None
+        
+        # 加载元数据 (Dataset 目录)
+        metadata_path = (self.dataset_path / self.current_sport / 
+                       self.current_event / self.current_type / f"{self.current_id}.json")
+        if metadata_path.exists():
+            try:
+                with open(metadata_path, 'r', encoding='utf-8') as f:
+                    self.current_metadata = json.load(f)
+            except Exception as e:
+                print(f"Failed to load metadata: {e}")
         
         try:
             with open(json_path, 'r', encoding='utf-8') as f:
@@ -740,32 +755,62 @@ class AnnotationReviewer:
         
     def display_current_annotation(self, refresh_media=True):
         """显示当前标注信息"""
+        self.annotation_text.delete(1.0, tk.END)
+        
+        # 始终显示 source_annotation 信息（如果存在）
+        source_info_text = ""
+        if self.current_metadata and 'source_annotation' in self.current_metadata:
+            source_ann = copy.deepcopy(self.current_metadata.get('source_annotation', {}))
+            offset = self.current_metadata.get('info', {}).get('original_starting_frame', 0)
+            
+            if source_ann:
+                # 递归处理时间信息，减去 original_starting_frame
+                def process_frames(obj):
+                    if isinstance(obj, dict):
+                        for k, v in obj.items():
+                            if k in ['Q_window_frame', 'A_window_frame'] and isinstance(v, list):
+                                new_v = []
+                                for item in v:
+                                    if isinstance(item, (int, float)):
+                                        new_v.append(int(item - offset))
+                                    elif isinstance(item, str) and '-' in item:
+                                        parts = item.split('-')
+                                        if len(parts) == 2:
+                                            try:
+                                                new_v.append(f"{int(parts[0]) - offset}-{int(parts[1]) - offset}")
+                                            except: new_v.append(item)
+                                        else: new_v.append(item)
+                                    else: new_v.append(item)
+                                obj[k] = new_v
+                            else:
+                                process_frames(v)
+                    elif isinstance(obj, list):
+                        for item in obj:
+                            process_frames(item)
+
+                process_frames(source_ann)
+                
+                source_info_text += "=== SOURCE ANNOTATION (Offset Corrected) ===\n"
+                source_info_text += json.dumps(source_ann, indent=2, ensure_ascii=False)
+                source_info_text += "\n==============================\n\n"
+        
         if not self.current_annotations:
-            self.annotation_text.delete(1.0, tk.END)
-            self.annotation_text.insert(1.0, "No annotation data")
+            self.annotation_text.insert(1.0, source_info_text + "No current annotation data (Annotation deleted or empty)")
             return
             
         if self.current_annotation_index >= len(self.current_annotations):
             self.current_annotation_index = 0
             
         annotation = self.current_annotations[self.current_annotation_index]
-        annotation_key = (self.current_json_path, self.current_annotation_index)
-        if self.bbox_edit_mode and annotation_key != self.edit_annotation_key:
-            self.exit_bbox_edit_mode(notify=False, refresh=False)
-        if not self.bbox_edit_mode:
-            self.edit_annotation_key = None
-            self.active_edit_target = None
-        self.current_old_annotation = self.find_old_annotation(annotation)
-        current_key = (self.current_json_path, self.current_annotation_index)
-        if self.last_transfer and self.last_transfer.get('key') != current_key:
-            self.last_transfer = None
-        
+        # ...existing code...
         # Display annotation info
-        info_text = f"Annotation {self.current_annotation_index + 1}/{len(self.current_annotations)}\n\n"
+        info_text = source_info_text
+        info_text += f"Annotation {self.current_annotation_index + 1}/{len(self.current_annotations)}\n\n"
         info_text += f"ID: {annotation.get('annotation_id', 'N/A')}\n"
         info_text += f"Task Type: {annotation.get('task_L1', 'N/A')}/{annotation.get('task_L2', 'N/A')}\n"
         info_text += f"Reviewed: {'Yes' if annotation.get('reviewed', False) else 'No'}\n"
         info_text += f"exist_old: {'true' if self.current_old_annotation else 'false'}\n"
+        
         if self.bbox_edit_mode and self.active_edit_target:
             info_text += f"Editing Target: {self.describe_edit_target(self.active_edit_target)}\n"
         
