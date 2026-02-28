@@ -20,6 +20,7 @@ class SpatialViewerApp:
         self.current_index = 0
         self.current_annotations = []
         self.current_ann_index = 0
+        self.current_file_path: Path | None = None
 
         # 主布局
         self.main_frame = tk.Frame(root)
@@ -77,6 +78,22 @@ class SpatialViewerApp:
         self.hint_label = tk.Label(self.info_frame, text="Double-click above text to open JSON in VS Code", fg="gray", font=("Arial", 9))
         self.hint_label.pack(pady=2)
 
+        # JSON 可编辑区域
+        self.json_label = tk.Label(self.info_frame, text="JSON Editor (可编辑)", fg="black", font=("Arial", 11, "bold"))
+        self.json_label.pack(anchor="w", padx=10)
+
+        self.json_editor = tk.Text(self.info_frame, wrap=tk.NONE, height=14, font=("Consolas", 11))
+        self.json_editor.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
+
+        self.action_frame = tk.Frame(self.info_frame)
+        self.action_frame.pack(fill=tk.X, padx=10, pady=4)
+
+        self.save_btn = tk.Button(self.action_frame, text="Save JSON", command=self.save_json)
+        self.save_btn.pack(side=tk.LEFT, padx=4)
+
+        self.delete_btn = tk.Button(self.action_frame, text="Delete JSON", fg="red", command=self.delete_json)
+        self.delete_btn.pack(side=tk.LEFT, padx=4)
+
         # Load first
         self.load_file(0)
 
@@ -109,6 +126,7 @@ class SpatialViewerApp:
 
         self.current_index = index
         file_path = Path(self.file_list[index])
+        self.current_file_path = file_path
         
         try:
             data = json.loads(file_path.read_text(encoding='utf-8'))
@@ -122,6 +140,10 @@ class SpatialViewerApp:
         # 提取 spatial annotations
         self.current_annotations = self.extract_spatial_annotations(data)
         self.current_ann_index = 0
+
+        # 将 JSON 内容放入可编辑区域
+        self.json_editor.delete("1.0", tk.END)
+        self.json_editor.insert(tk.END, json.dumps(data, indent=4, ensure_ascii=False))
         
         # 尝试加载图片
         # 假设 output 结构是 .../output/Sport/Event/frames/xx.json
@@ -154,6 +176,56 @@ class SpatialViewerApp:
 
         self.show_image(img_path)
         self.show_annotation(0)
+
+    def save_json(self):
+        """保存 JSON 编辑框内容到当前文件。"""
+        if not self.current_file_path:
+            return
+        raw = self.json_editor.get("1.0", tk.END).strip()
+        try:
+            parsed = json.loads(raw)
+        except Exception as e:
+            messagebox.showerror("Error", f"JSON 解析失败: {e}")
+            return
+
+        try:
+            self.current_file_path.write_text(json.dumps(parsed, indent=4, ensure_ascii=False), encoding='utf-8')
+            # 保存后刷新当前视图与注释列表
+            self.current_annotations = self.extract_spatial_annotations(parsed)
+            self.current_ann_index = 0
+            self.show_annotation(0)
+            messagebox.showinfo("Saved", f"已保存: {self.current_file_path}")
+        except Exception as e:
+            messagebox.showerror("Error", f"写入文件失败: {e}")
+
+    def delete_json(self):
+        """删除当前 JSON 文件，并跳转到下一个或上一个。"""
+        if not self.current_file_path:
+            return
+        confirm = messagebox.askyesno("Confirm Delete", f"确定删除当前文件？\n{self.current_file_path}")
+        if not confirm:
+            return
+        try:
+            os.remove(self.current_file_path)
+        except Exception as e:
+            messagebox.showerror("Error", f"删除失败: {e}")
+            return
+
+        # 从列表中移除并决定跳转位置
+        try:
+            idx = self.current_index
+            self.file_list.pop(idx)
+        except Exception:
+            pass
+
+        if not self.file_list:
+            messagebox.showinfo("Info", "文件已全部删除或列表为空，程序将退出。")
+            self.root.destroy()
+            return
+
+        # 选择下一个索引
+        next_idx = min(idx, len(self.file_list) - 1)
+        self.load_file(next_idx)
 
     def extract_spatial_annotations(self, obj):
         anns = []
