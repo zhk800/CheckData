@@ -159,12 +159,14 @@ def load_mot(path: Path) -> MotData:
 def resolve_mot_path(json_path: Path, mot_rel: str, check_root: Path) -> Optional[Path]:
     mot_candidates: List[Path] = []
     mot_rel_path = Path(mot_rel)
+    # Prefer the mot/ folder next to the clip JSON to avoid stale/incorrect paths
+    # stored in JSON (absolute or check_root-relative).
+    mot_name = mot_rel_path.name
+    mot_candidates.append(json_path.parent / "mot" / mot_name)
     if mot_rel_path.is_absolute():
         mot_candidates.append(mot_rel_path)
     else:
         mot_candidates.append(check_root / mot_rel_path)
-    mot_name = mot_rel_path.name
-    mot_candidates.append(json_path.parent / "mot" / mot_name)
     for candidate in mot_candidates:
         if candidate.exists():
             return candidate
