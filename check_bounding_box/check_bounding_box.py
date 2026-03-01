@@ -14,7 +14,8 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 Box = Tuple[float, float, float, float]
 FrameBoxes = Dict[int, List[Box]]
-OUTPUT_ROOT = (Path(__file__).resolve().parents[2] / "output").resolve()
+# OUTPUT_ROOT = (Path(__file__).resolve().parents[2] / "output").resolve()
+OUTPUT_ROOT=Path("/home/liuruizhi/Liuruizhi/OlympicVMBench/Check/Copy/output")
 THRESHOLD_DEFAULT = 0.90
 MARK_LOG_PATH = Path(__file__).with_name("marked_files.txt")
 
@@ -69,6 +70,21 @@ def expand_a_window_frames(a_window_frame) -> List[int]:
     """展开 A 窗口为帧列表，整数向下取整，区间按闭区间处理。"""
     frames: List[int] = []
     if a_window_frame is None:
+        return frames
+
+    # 常见格式：A_window_frame = [start, end]（两个数字，表示闭区间）。
+    # 旧逻辑会把它当作两个离散帧，导致窗口一致性检查几乎总失败。
+    if (
+        isinstance(a_window_frame, list)
+        and len(a_window_frame) == 2
+        and isinstance(a_window_frame[0], (int, float))
+        and isinstance(a_window_frame[1], (int, float))
+    ):
+        start = int(a_window_frame[0])
+        end = int(a_window_frame[1])
+        if end < start:
+            start, end = end, start
+        frames.extend(range(start, end + 1))
         return frames
 
     items = a_window_frame if isinstance(a_window_frame, list) else [a_window_frame]
