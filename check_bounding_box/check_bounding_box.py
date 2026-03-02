@@ -15,8 +15,8 @@ from typing import Dict, Iterable, List, Optional, Tuple
 Box = Tuple[float, float, float, float]
 FrameBoxes = Dict[int, List[Box]]
 # OUTPUT_ROOT = (Path(__file__).resolve().parents[2] / "output").resolve()
-OUTPUT_ROOT=Path("/home/liuruizhi/Liuruizhi/OlympicVMBench/Check/Copy/output")
-THRESHOLD_DEFAULT = 0.90
+OUTPUT_ROOT=Path(__file__).parent[2] / "output"
+THRESHOLD_DEFAULT = 0.95
 MARK_LOG_PATH = Path(__file__).with_name("marked_files.txt")
 
 
